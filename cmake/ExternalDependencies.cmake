@@ -1367,9 +1367,9 @@ if(BUILD_OPUS)
 		else()
 			set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 		endif()
-		if(ANDROID OR IOS OR UWP)
-			set(OPUS_FIXED_POINT ON)
-		endif()
+		# TN patch (opus15_osce_build): enable OSCE (deep PLC and LACE/noLACE) and keep
+		# the float pipeline on mobile, as OSCE requires the float build of opus.
+		set(OPUS_OSCE ON)
 		set(BUILD_SHARED_LIBS ${BUILD_OPUS_SHARED_LIBS})
 
 		set(CMAKE_POLICY_DEFAULT_CMP0077 NEW) # Prevent project from overriding the options we just set here
