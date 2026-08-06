@@ -2,6 +2,71 @@
 
 # Linphone-SDK
 
+## Enflick maintenance
+
+This is Enflick's fork of Linphone SDK. `main` is the single source of truth for
+the shared Android and iOS source patch stack.
+
+### Current baseline
+
+| Item | Value |
+| --- | --- |
+| Upstream | `https://gitlab.linphone.org/BC/public/linphone-sdk.git` |
+| Baseline tag | `5.5.12` (`68ea26c1a4`) |
+| Enflick changes | the commits after that tag on `main` |
+
+The current changes include the shared TextNow call/reconnect fixes, the native
+decoded-audio tap used by the calling-quality harness, and the tested mobile
+Opus OSCE configuration. They apply to both platforms unless a commit says
+otherwise.
+
+### Repository layout and dependencies
+
+This SDK already contains the TextNow-modified Linphone components as ordinary
+directories in the superproject (`liblinphone`, `mediastreamer2`, `ortp`,
+`belle-sip`, and `bctoolbox`). They do not need separate Enflick forks.
+
+The remaining gitlinks are upstream third-party dependencies. Keep their
+upstream URLs and initialize them as part of a checkout:
+
+```sh
+git submodule update --init --recursive
+```
+
+Do not create or maintain a dependency fork merely to mirror an unchanged
+submodule. Create one only when Enflick carries a source change in that
+dependency, then document its owning commit and update the corresponding
+gitlink here.
+
+### Updating to a new upstream release
+
+1. Fetch the upstream SDK and create a branch from its release tag.
+2. Initialize submodules recursively and confirm the upstream SDK builds before
+   carrying any Enflick change.
+3. Replay the Enflick commits from `main` in dependency order; resolve conflicts
+   in the SDK source, not by adding standalone patch files.
+4. Build Android and iOS from the same resulting commit and run their relevant
+   call/audio tests.
+5. Record the upstream tag, rebuilt artifacts, and validation evidence in the
+   pull request. Merge the shared source update to `main` only after both
+   platform checks are green.
+
+Patch application must not create `*.orig` backups. If a patch tool produces
+them, remove them before committing.
+
+### Local checkout
+
+```sh
+git clone --recurse-submodules git@github.com:Enflick/linphone-sdk.git
+cd linphone-sdk
+git remote add upstream https://gitlab.linphone.org/BC/public/linphone-sdk.git
+git fetch upstream --tags
+```
+
+The rest of this document is the upstream build guide. Follow its platform
+requirements and build presets, then use Enflick's artifact publication process
+for release outputs.
+
 Linphone-SDK is a project that bundles Liblinphone and its dependencies as git submodules, in the purpose of simplifying
 the compilation and packaging of the whole Liblinphone suite, comprising Mediastreamer2, Belle-sip, oRTP and many others.
 Its compilation produces a SDK suitable to create applications running on top of these components.
