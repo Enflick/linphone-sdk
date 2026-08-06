@@ -41,6 +41,7 @@ set(BASE_SOURCE_FILES_C
 	base/msasync.c
 	otherfilters/itc.c
 	otherfilters/join.c
+	otherfilters/decodedaudiotap.c
 	otherfilters/tee.c
 	otherfilters/void.c
 )

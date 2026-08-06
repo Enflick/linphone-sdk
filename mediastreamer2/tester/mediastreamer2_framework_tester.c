@@ -20,6 +20,7 @@
 
 #include "mediastreamer2/dtmfgen.h"
 #include "mediastreamer2/mediastream.h"
+#include "mediastreamer2/msdecodedaudiotap.h"
 #include "mediastreamer2/msfileplayer.h"
 #include "mediastreamer2/msfilerec.h"
 #include "mediastreamer2/msrtp.h"
@@ -66,6 +67,43 @@ static void filter_register_tester(void) {
 	ms_filter_destroy(filter);
 
 	ms_factory_destroy(factory);
+}
+
+static void decoded_audio_tap_test_callback(BCTBX_UNUSED(void *user_data),
+                                            BCTBX_UNUSED(const void *stream_id),
+                                            BCTBX_UNUSED(const int16_t *pcm),
+                                            BCTBX_UNUSED(size_t nsamples),
+                                            BCTBX_UNUSED(int sample_rate),
+                                            BCTBX_UNUSED(int nchannels)) {
+}
+
+static void decoded_audio_tap_registration_tester(void) {
+	MSDecodedAudioTapCallback cb = NULL;
+	void *user_data = (void *)0x1;
+	int callback_context = 0;
+	MSFactory *factory;
+	MSFilter *filter;
+
+	BC_ASSERT_FALSE(ms_get_global_decoded_audio_tap(&cb, &user_data));
+	BC_ASSERT_PTR_NULL(cb);
+	BC_ASSERT_PTR_NULL(user_data);
+
+	factory = ms_tester_factory_new();
+	BC_ASSERT_PTR_NULL(ms_factory_lookup_filter_by_name(factory, "MSDecodedAudioTap"));
+	filter = ms_decoded_audio_tap_create_filter(factory, NULL, NULL, NULL, 8000, 1);
+	BC_ASSERT_PTR_NOT_NULL(filter);
+	if (filter != NULL) ms_filter_destroy(filter);
+	ms_factory_destroy(factory);
+
+	ms_set_global_decoded_audio_tap(decoded_audio_tap_test_callback, &callback_context);
+	BC_ASSERT_TRUE(ms_get_global_decoded_audio_tap(&cb, &user_data));
+	BC_ASSERT_TRUE(cb == decoded_audio_tap_test_callback);
+	BC_ASSERT_TRUE(user_data == &callback_context);
+
+	ms_set_global_decoded_audio_tap(NULL, NULL);
+	BC_ASSERT_FALSE(ms_get_global_decoded_audio_tap(&cb, &user_data));
+	BC_ASSERT_PTR_NULL(cb);
+	BC_ASSERT_PTR_NULL(user_data);
 }
 #ifdef VIDEO_ENABLED
 static uint8_t pix_value(PixType type, size_t idx) {
@@ -401,7 +439,7 @@ static void test_yuv_buf_copy_with_pix_strides_base(const MSVideoSize *size,
 	MSRect roi1 = {0, 0, size->width, size->height};
 	MSRect roi2 = roi1;
 	uint8_t *buf1 = generate_picture(&buffer_size, &roi1, src_is_semiplanar);
-	uint8_t *buf2 = ms_new0(uint8_t, buffer_size.width * buffer_size.height * 3 / 2);
+	uint8_t *buf2 = ms_new0(uint8_t, buffer_size.width *buffer_size.height * 3 / 2);
 	uint8_t *src_planes[3], *dst_planes[3];
 	int src_row_strides[3], dst_row_strides[3];
 	int src_pix_strides[3], dst_pix_strides[3];
@@ -602,6 +640,7 @@ static void test_worker_threads_2(void) {
 }
 
 static test_t tests[] = {TEST_NO_TAG("Multiple ms_voip_init", filter_register_tester),
+                         TEST_NO_TAG("Decoded audio tap is inert by default", decoded_audio_tap_registration_tester),
                          TEST_NO_TAG("Is multicast", test_is_multicast),
                          TEST_NO_TAG("FilterDesc enabling/disabling", test_filterdesc_enable_disable),
                          TEST_NO_TAG("Worker threads", test_worker_threads),

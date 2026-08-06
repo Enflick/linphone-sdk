@@ -64,6 +64,7 @@ set(HEADER_FILES
 	msrtp.h
 	msscreensharing.h
 	mssndcard.h
+	msdecodedaudiotap.h
 	mstee.h
 	msticker.h
 	mstonedetector.h

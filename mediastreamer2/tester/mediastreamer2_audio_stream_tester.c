@@ -22,6 +22,7 @@
 
 #include "mediastreamer2/dtmfgen.h"
 #include "mediastreamer2/mediastream.h"
+#include "mediastreamer2/msdecodedaudiotap.h"
 #include "mediastreamer2/msfileplayer.h"
 #include "mediastreamer2/msfilerec.h"
 #include "mediastreamer2/msrtp.h"
@@ -87,6 +88,29 @@ typedef struct _stats_t {
 
 static void reset_stats(stats_t *s) {
 	memset(s, 0, sizeof(stats_t));
+}
+
+static void decoded_audio_tap_disabled_is_inert(void) {
+	AudioStream *stream;
+	RtpProfile *profile = rtp_profile_new("decoded audio tap disabled");
+	char *hello_file = bc_tester_res(HELLO_8K_1S_FILE);
+	MSDecodedAudioTapCallback cb = NULL;
+	void *user_data = NULL;
+	int start_result;
+
+	ms_set_global_decoded_audio_tap(NULL, NULL);
+	rtp_profile_set_payload(profile, 0, &payload_type_pcmu8000);
+	stream = audio_stream_new(_factory, MARIELLE_RTP_PORT, MARIELLE_RTCP_PORT, FALSE);
+	start_result = audio_stream_start_full(stream, profile, "127.0.0.1", MARGAUX_RTP_PORT, "127.0.0.1",
+	                                       MARGAUX_RTCP_PORT, 0, 50, hello_file, NULL, NULL, NULL, 0);
+
+	BC_ASSERT_EQUAL(start_result, 0, int, "%d");
+	BC_ASSERT_PTR_NULL(stream->dummy);
+	BC_ASSERT_FALSE(ms_get_global_decoded_audio_tap(&cb, &user_data));
+
+	audio_stream_stop(stream);
+	rtp_profile_destroy(profile);
+	bctbx_free(hello_file);
 }
 
 static void notify_cb(void *user_data, BCTBX_UNUSED(MSFilter *f), unsigned int event, BCTBX_UNUSED(void *eventdata)) {
@@ -1694,6 +1718,7 @@ static void voice_activity_detection(void) {
 }
 
 static test_t tests[] = {
+    TEST_NO_TAG("Decoded audio tap disabled is inert", decoded_audio_tap_disabled_is_inert),
     TEST_NO_TAG("Basic audio stream", basic_audio_stream),
     TEST_NO_TAG("Multicast audio stream", multicast_audio_stream),
     TEST_NO_TAG("Encrypted audio stream", encrypted_audio_stream),

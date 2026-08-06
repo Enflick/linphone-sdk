@@ -31,6 +31,7 @@
 #include "mediastreamer2/mediastream.h"
 #include "mediastreamer2/msaudiomixer.h"
 #include "mediastreamer2/mscodecutils.h"
+#include "mediastreamer2/msdecodedaudiotap.h"
 #include "mediastreamer2/msequalizer.h"
 #include "mediastreamer2/mseventqueue.h"
 #include "mediastreamer2/msfileplayer.h"
@@ -458,6 +459,23 @@ static void audio_stream_payload_type_changed(RtpSession *session,
 			ms_filter_destroy(stream->ms.decoder);
 			stream->ms.decoder = dec;
 			configure_decoder(stream, pt, stream->sample_rate, stream->nchannels);
+			/* TextNow patch: keep the decoded-audio tap's reported format in
+			 * sync with the replacement decoder (a re-invite may switch to a
+			 * codec that cannot honor the stream rate, e.g. PCMU's fixed
+			 * 8 kHz). Plain int updates racing the ticker thread are benign:
+			 * at worst one PCM block is labeled with the previous rate. */
+			if (stream->dummy) {
+				int decoder_rate = 0;
+				int decoder_channels = 0;
+				if (ms_filter_call_method(stream->ms.decoder, MS_FILTER_GET_SAMPLE_RATE, &decoder_rate) == 0 &&
+				    decoder_rate > 0) {
+					ms_filter_call_method(stream->dummy, MS_FILTER_SET_SAMPLE_RATE, &decoder_rate);
+				}
+				if (ms_filter_call_method(stream->ms.decoder, MS_FILTER_GET_NCHANNELS, &decoder_channels) == 0 &&
+				    decoder_channels > 0) {
+					ms_filter_call_method(stream->dummy, MS_FILTER_SET_NCHANNELS, &decoder_channels);
+				}
+			}
 			if (stream->write_resampler) {
 				audio_stream_configure_resampler(stream, stream->write_resampler, stream->ms.decoder,
 				                                 stream->soundwrite);
@@ -1812,6 +1830,24 @@ int audio_stream_start_from_io(AudioStream *stream,
 		stream->plc = NULL;
 	}
 
+	/* TextNow patch: decoded downlink audio tap (see msdecodedaudiotap.h).
+	 * Created only when the application registered a process-wide callback.
+	 * Reuses the existing dummy slot, which is reserved for the preload graph
+	 * and is NULL after unprepare, so the public AudioStream ABI is unchanged.
+	 * Placed after the decoder and
+	 * generic PLC so the tapped PCM is the concealed signal the user hears,
+	 * before receive volume / equalizer / resampler. */
+	{
+		MSDecodedAudioTapCallback tap_cb = NULL;
+		void *tap_user_data = NULL;
+		if (!skip_encoder_and_decoder && ms_get_global_decoded_audio_tap(&tap_cb, &tap_user_data)) {
+			stream->dummy = ms_decoded_audio_tap_create_filter(stream->ms.factory, tap_cb, tap_user_data, stream,
+			                                                   sample_rate, nchannels);
+		} else {
+			stream->dummy = NULL;
+		}
+	}
+
 	if ((stream->features & AUDIO_STREAM_FEATURE_FLOW_CONTROL) != 0) {
 		stream->flowcontrol = ms_factory_create_filter(stream->ms.factory, MS_AUDIO_FLOW_CONTROL_ID);
 		if (stream->flowcontrol) {
@@ -1883,6 +1919,7 @@ int audio_stream_start_from_io(AudioStream *stream,
 	}
 	if (stream->baudot_detector) ms_connection_helper_link(&h, stream->baudot_detector, 0, 0);
 	if (stream->plc) ms_connection_helper_link(&h, stream->plc, 0, 0);
+	if (stream->dummy) ms_connection_helper_link(&h, stream->dummy, 0, 0);
 	if (stream->flowcontrol) ms_connection_helper_link(&h, stream->flowcontrol, 0, 0);
 	if (stream->dtmfgen) ms_connection_helper_link(&h, stream->dtmfgen, 0, 0);
 	if (stream->volrecv) ms_connection_helper_link(&h, stream->volrecv, 0, 0);
@@ -2525,6 +2562,7 @@ void audio_stream_stop(AudioStream *stream) {
 			}
 			if (stream->baudot_detector != NULL) ms_connection_helper_unlink(&h, stream->baudot_detector, 0, 0);
 			if (stream->plc != NULL) ms_connection_helper_unlink(&h, stream->plc, 0, 0);
+			if (stream->dummy != NULL) ms_connection_helper_unlink(&h, stream->dummy, 0, 0);
 			if (stream->flowcontrol != NULL) ms_connection_helper_unlink(&h, stream->flowcontrol, 0, 0);
 			if (stream->dtmfgen != NULL) ms_connection_helper_unlink(&h, stream->dtmfgen, 0, 0);
 			if (stream->volrecv != NULL) ms_connection_helper_unlink(&h, stream->volrecv, 0, 0);
