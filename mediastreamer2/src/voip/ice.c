@@ -1009,7 +1009,7 @@ static bool_t ice_check_list_gather_candidates(IceCheckList *cl, Session_Index *
 		rtp_session_get_transports(cl->rtp_session, &rtptp, NULL);
 
 		if (rtptp) {
-	
+
 			struct sockaddr *sa = (struct sockaddr *)&cl->rtp_session->rtp.gs.loc_addr;
 			if (cl->session->turn_enabled) {
 				// TN patch - clear TURN state due to stale nonce and sockets
