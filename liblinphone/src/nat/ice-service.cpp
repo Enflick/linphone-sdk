@@ -41,6 +41,7 @@ IceService::IceService(StreamsGroup &sg) : mStreamsGroup(sg) {
 	mAllowLateIce = !!linphone_config_get_int(config, "net", "allow_late_ice", 0);
 	mEnableIntegrityCheck = !!linphone_config_get_int(config, "net", "ice_session_enable_message_integrity_check", 1);
 	mDontDefaultToStunCandidates = linphone_config_get_int(config, "net", "dont_default_to_stun_candidates", 0);
+	mKeepCredentialsOnRestart = !!linphone_config_get_int(config, "net", "ice_keep_credentials_on_restart", 0);
 }
 
 IceService::~IceService() {
@@ -96,6 +97,7 @@ void IceService::checkSession(IceRole role, bool preferIpv6DefaultCandidates) {
 	ice_session_set_default_candidates_ip_version(mIceSession, (bool_t)preferIpv6DefaultCandidates);
 	// For backward compatibility purposes, shall be enabled by default in the future.
 	ice_session_enable_message_integrity_check(mIceSession, mEnableIntegrityCheck);
+	ice_session_set_keep_credentials_on_restart(mIceSession, (bool_t)mKeepCredentialsOnRestart);
 	ice_session_set_role(mIceSession, role);
 }
 
@@ -267,6 +269,8 @@ LinphoneCore *IceService::getCCore() const {
 }
 
 int IceService::gatherLocalCandidates() {
+	lInfo() << "IceService::gatherLocalCandidates()";
+
 	list<string> localAddrs = IfAddrs::fetchLocalAddresses();
 	bool ipv6Allowed = linphone_core_ipv6_enabled(getCCore());
 	const auto &mediaLocalIp = getMediaSessionPrivate().getMediaLocalIp();
@@ -276,7 +280,8 @@ int IceService::gatherLocalCandidates() {
 		localAddrs.push_back(mediaLocalIp);
 	}
 
-#if defined(__APPLE__) && TARGET_OS_IPHONE
+// TN patch - disable local network permission check, looks like we don't need it for TCP TURN
+#if 0
 	if (getPlatformHelpers(getCCore())->getNetworkType() == PlatformHelpers::NetworkType::Wifi &&
 	    !hasLocalNetworkPermission(localAddrs))
 		return -1;

@@ -166,6 +166,16 @@ void linphone_nat_policy_set_nat_v6_address(LinphoneNatPolicy *policy, const cha
 	NatPolicy::toCpp(policy)->setNatV6Address(L_C_TO_STRING(v6_address));
 }
 
+// TN patch
+bool_t linphone_nat_policy_delay_ice_for_external_callback_enabled(const LinphoneNatPolicy *policy) {
+	return NatPolicy::toCpp(policy)->delayIceEnabled() ? TRUE : FALSE;
+}
+
+void linphone_nat_policy_enable_delay_ice_for_external_callback(LinphoneNatPolicy *policy, bool_t enable){
+	NatPolicy::toCpp(policy)->enableDelayIce(!!enable);
+}
+// TN patch
+
 const char *linphone_nat_policy_get_turn_configuration_endpoint(const LinphoneNatPolicy *policy) {
 	return L_STRING_TO_C(NatPolicy::toCpp(policy)->getTurnConfigurationEndpoint());
 }

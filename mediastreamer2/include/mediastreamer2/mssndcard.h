@@ -91,6 +91,7 @@ typedef struct _MSSndCard *(*MSSndCardDuplicateFunc)(struct _MSSndCard *obj);
 typedef void (*MSSndCardSetUsageHintFunc)(struct _MSSndCard *obj, bool_t is_going_to_be_used);
 typedef void (*MSSndCardUnloadFunc)(MSSndCardManager *obj);
 typedef void (*MSSndCardAudioSessionFunc)(struct _MSSndCard *obj, bool_t actived);
+typedef bool_t (*MSSndCardIsAudioSessionActiveFunc)(struct _MSSndCard *obj);
 typedef void (*MSSndCardCallKitFunc)(struct _MSSndCard *obj, bool_t enabled);
 typedef void (*MSSndCardAudioRouteFunc)(struct _MSSndCard *obj);
 typedef void (*MSSndCardConfigureFunc)(struct _MSSndCard *obj);
@@ -111,6 +112,7 @@ struct _MSSndCardDesc {
 	MSSndCardUnloadFunc unload;
 	MSSndCardSetUsageHintFunc usage_hint;
 	MSSndCardAudioSessionFunc audio_session_activated;
+	MSSndCardIsAudioSessionActiveFunc audio_session_is_active;
 	MSSndCardCallKitFunc callkit_enabled;
 	MSSndCardAudioRouteFunc audio_route_changed;
 	MSSndCardConfigureFunc configure;
@@ -750,6 +752,14 @@ MS2_PUBLIC void ms_snd_card_set_usage_hint(MSSndCard *obj, bool_t is_going_to_be
  * @param actived    TRUE if audio session is activated, FALSE otherwise.
  */
 MS2_PUBLIC void ms_snd_card_notify_audio_session_activated(MSSndCard *obj, bool_t activated);
+
+/**
+ * Indicates if the audio session is activated. See ms_snd_card_notify_audio_session_activated()
+ *
+ * @param obj      A sound card object.
+ * @return         TRUE if audio session is activated, FALSE otherwise.
+ */
+MS2_PUBLIC bool_t ms_snd_card_is_audio_session_active(MSSndCard *obj);
 
 /**
  * Used by application to notify whether audio route is changed. On most platform this function is useless.

@@ -959,6 +959,13 @@ static void au_audio_route_changed(MSSndCard *obj) {
 	handle_sample_rate_change(FALSE);
 }
 
+static bool_t au_audio_session_is_active(MSSndCard *obj) {
+	AudioUnitHolder *au_holder = [AudioUnitHolder sharedInstance];
+	return au_holder.audio_session_activated;
+}
+
+unsigned char linphone_tn_check_audio_unit_is_up_synchronous = 1;
+
 static void au_audio_session_activated(MSSndCard *obj, bool_t activated) {
 	AudioUnitHolder *au_holder = [AudioUnitHolder sharedInstance];
 	bool_t need_audio_session_reconfiguration = FALSE;
@@ -996,7 +1003,11 @@ static void au_audio_session_activated(MSSndCard *obj, bool_t activated) {
 			*/
 			handle_sample_rate_change(need_audio_session_reconfiguration);
 			/* The next is done on a separate thread because it is considerably slow, so don't block the application calling thread here. */
-			[au_holder check_audio_unit_is_up_async];
+			if (linphone_tn_check_audio_unit_is_up_synchronous) {
+				[au_holder check_audio_unit_is_up];
+			} else {
+				[au_holder check_audio_unit_is_up_async];
+			}
 		}
 	}else if (!activated){
 		if ([au_holder audio_unit_state] == MSAudioUnitStarted) {
@@ -1046,6 +1057,7 @@ MSSndCardDesc au_card_desc={
 .duplicate=au_duplicate,
 .usage_hint=au_usage_hint,
 .audio_session_activated=au_audio_session_activated,
+.audio_session_is_active=au_audio_session_is_active,
 .callkit_enabled=au_callkit_enabled,
 .audio_route_changed=au_audio_route_changed,
 .configure=au_configure,
@@ -1268,7 +1280,11 @@ static void au_read_process(MSFilter *f){
 			ms_error("Stalled AudioUnit detected, will restart it");
 			au_holder.stalled = TRUE;
 			[au_holder recreate_audio_unit];
-			[au_holder check_audio_unit_is_up_async];
+			if (linphone_tn_check_audio_unit_is_up_synchronous) {
+				[au_holder check_audio_unit_is_up];
+			} else {
+				[au_holder check_audio_unit_is_up_async];
+			}
 		}else d->read_samples_last_activity_check = d->read_samples;
 	}
 }

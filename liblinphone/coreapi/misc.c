@@ -1059,6 +1059,20 @@ const OrtpNetworkSimulatorParams *linphone_core_get_network_simulator_params(con
 	return &lc->net_conf.netsim_params;
 }
 
+// TN patch
+void linphone_core_enable_network_simulator_packet_loss(LinphoneCore *lc,
+                                                        bool_t enabled,
+                                                        float loss_rate,
+                                                        bool_t inbound) {
+	OrtpNetworkSimulatorParams params = {0};
+	params.enabled = enabled ? TRUE : FALSE;
+	params.loss_rate = loss_rate;
+	params.rtp_only = TRUE; /* only drop RTP, keep RTCP so stats/feedback survive */
+	params.mode = inbound ? OrtpNetworkSimulatorInbound : OrtpNetworkSimulatorOutbound;
+	linphone_core_set_network_simulator_params(lc, &params);
+}
+// TN patch
+
 static const char *_tunnel_mode_str[3] = {"disable", "enable", "auto"};
 
 LinphoneTunnelMode linphone_tunnel_mode_from_string(const char *string) {

@@ -44,43 +44,12 @@ public class FirebasePushHelper implements PushNotificationUtils.PushHelperInter
 
     @Override
     public void init(Context context) {
-        try {
-            FirebaseMessaging.getInstance()
-                    .getToken()
-                    .addOnCompleteListener(
-                            new OnCompleteListener<String>() {
-                                @Override
-                                public void onComplete(@NonNull Task<String> task) {
-                                    if (!task.isSuccessful()) {
-                                        Log.e(
-                                                "[Push Notification] Firebase getToken failed: "
-                                                        + task.getException());
-                                        return;
-                                    }
-                                    String token = task.getResult();
-                                    Log.i("[Push Notification] Token fetched from Firebase: " + token);
-                                    if (AndroidPlatformHelper.isReady()) {
-                                        Runnable runnable = new Runnable() {
-                                            @Override
-                                            public void run() {
-                                                if (AndroidPlatformHelper.isReady()) {
-                                                    AndroidPlatformHelper.instance().setPushToken(token);
-                                                }
-                                            }
-                                        };
-                                        AndroidPlatformHelper.instance().dispatchOnCoreThread(runnable);
-                                    }
-                                }
-                            });
-        } catch (Exception e) {
-            Log.e("[Push Notification] Firebase not available.");
-        }
+        // TN patch - disabled
     }
 
     @Override
     public boolean isAvailable(Context context) {
-        GoogleApiAvailability googleApiAvailability = GoogleApiAvailability.getInstance();
-        int resultCode = googleApiAvailability.isGooglePlayServicesAvailable(context);
-        return resultCode == ConnectionResult.SUCCESS;
+        // TN patch - disabled
+        return false;
     }
 }

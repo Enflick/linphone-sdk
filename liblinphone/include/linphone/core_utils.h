@@ -134,6 +134,14 @@ LINPHONE_PUBLIC bool_t linphone_core_is_echo_canceller_calibration_required(Linp
 LINPHONE_PUBLIC void linphone_core_start_dtmf_stream(LinphoneCore *core);
 
 /**
+ * Special function to indicate if the audio session is activated.
+ * @param core The #LinphoneCore object. @notnil
+ * @return TRUE to if activated, FALSE otherwise.
+ * @ingroup IOS
+ */
+LINPHONE_PUBLIC bool_t linphone_core_is_audio_session_active(LinphoneCore* core);
+
+/**
  * @ingroup group_IOS
  * @param core The #LinphoneCore object. @notnil
  * Special function to stop dtmf feed back function. Must be called before entering BG mode
@@ -148,6 +156,14 @@ LINPHONE_PUBLIC void linphone_core_stop_dtmf_stream(LinphoneCore *core);
  * @ingroup group_IOS
  */
 LINPHONE_PUBLIC void linphone_core_activate_audio_session(LinphoneCore *core, bool_t activated);
+
+/**
+ * Indicates if the audio session is activated.
+ * @param core The #LinphoneCore object. @notnil
+ * @return TRUE to if activated, FALSE otherwise.
+ * @ingroup IOS
+ */
+LINPHONE_PUBLIC bool_t linphone_core_is_audio_session_active(LinphoneCore* core);
 
 /**
  * Special function to configure audio session with default settings. Must be called in ProviderDelegate's callbacks

@@ -510,6 +510,16 @@ LINPHONE_PUBLIC LinphoneStatus linphone_call_redirect_to(LinphoneCall *call, Lin
  **/
 LINPHONE_PUBLIC LinphoneStatus linphone_call_decline(LinphoneCall *call, LinphoneReason reason);
 
+// TN patch
+
+/**
+ * Causes a running call to reconnect, the same way as a network reconnect.
+ * @param call A #LinphoneCall object @notnil
+**/
+LINPHONE_PUBLIC void linphone_call_reconnect (LinphoneCall *call);
+
+// TN patch
+
 /**
  * Declines a pending incoming call, with a #LinphoneErrorInfo object.
  * @param call A #LinphoneCall object that must be in the IncomingReceived state @notnil

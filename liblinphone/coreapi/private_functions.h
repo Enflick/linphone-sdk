@@ -865,6 +865,7 @@ void linphone_core_notify_authentication_requested(LinphoneCore *lc,
                                                    LinphoneAuthMethod method);
 void linphone_core_notify_call_log_updated(LinphoneCore *lc, LinphoneCallLog *newcl);
 void linphone_core_notify_call_id_updated(LinphoneCore *lc, const char *previous, const char *current);
+void linphone_core_notify_delay_ice_callback(LinphoneCore *lc);
 void linphone_core_notify_text_message_received(LinphoneCore *lc,
                                                 LinphoneChatRoom *room,
                                                 const LinphoneAddress *from,

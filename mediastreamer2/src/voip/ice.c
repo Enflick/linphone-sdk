@@ -245,6 +245,7 @@ static void ice_session_init(IceSession *session) {
 	session->gathering_end_ts.tv_sec = session->gathering_end_ts.tv_nsec = -1;
 	session->connectivity_checks_start_ts.tv_sec = session->connectivity_checks_start_ts.tv_nsec = -1;
 	session->check_message_integrity = TRUE;
+	session->keep_credentials_on_restart = FALSE;
 	session->default_candidates_prefer_ipv6 = TRUE;
 	session->default_types[0] = ICT_RelayedCandidate;
 	session->default_types[1] = ICT_ServerReflexiveCandidate;
@@ -289,6 +290,10 @@ void ice_session_set_default_candidates_ip_version(IceSession *session, bool_t i
 
 void ice_session_enable_message_integrity_check(IceSession *session, bool_t enable) {
 	session->check_message_integrity = enable;
+}
+
+void ice_session_set_keep_credentials_on_restart(IceSession *session, bool_t enable) {
+	session->keep_credentials_on_restart = enable;
 }
 
 /******************************************************************************
@@ -952,7 +957,45 @@ static void ice_check_list_add_stun_server_request(IceCheckList *cl, IceStunServ
 	cl->stun_server_requests = bctbx_list_append(cl->stun_server_requests, request);
 }
 
+// TN patch
+static void clear_turn_state(RtpTransport *rtptp, MSTurnContext *context) {
+	if (!rtptp || !context) {
+		return;
+	}
+
+	if (context->turn_tcp_client) {
+		// TODO: Currently this code just nulls the ptr to the last TURN client but notably
+		// does NOT free the memory.
+		//
+		// This is because there is another thread also using the client to send RTP,
+		// so this is tricky to sync properly. Additionally just just trying _set_endpoint
+		// to null stop that thread leads to some one-way audio issues during the call,
+		// which does not seem easy to fix.
+		//
+		// However just nulling the ptr seems to work without issue, and allow reconnects
+		// still using ICE and TCP-TURN, but we leak memory :(
+		//
+		// This is the minimal code needed to stop the RTP and free the TURN client
+		// meta_rtp_transport_set_endpoint(rtptp, NULL);
+		// ms_turn_tcp_client_destroy(context->turn_tcp_client);
+
+		(void)rtptp;
+		context->turn_tcp_client = NULL;
+	}
+
+	// clear all TURN state to avoid stale nonce error
+#define FREE_AND_NULL_VAR(var) do { ms_free(var); var = NULL; } while (0)
+	FREE_AND_NULL_VAR(context->realm);
+	FREE_AND_NULL_VAR(context->nonce);
+	FREE_AND_NULL_VAR(context->username);
+	FREE_AND_NULL_VAR(context->password);
+	FREE_AND_NULL_VAR(context->ha1);
+}
+// TN patch
+
 static bool_t ice_check_list_gather_candidates(IceCheckList *cl, Session_Index *si) {
+	ms_debug("ice_check_list_gather_candidates()");
+
 	IceStunServerRequest *request;
 	RtpTransport *rtptp = NULL;
 	MSTimeSpec curtime = ice_current_time();
@@ -964,16 +1007,21 @@ static bool_t ice_check_list_gather_candidates(IceCheckList *cl, Session_Index *
 		cl->gathering_candidates = TRUE;
 		cl->gathering_start_time = curtime;
 		rtp_session_get_transports(cl->rtp_session, &rtptp, NULL);
+
 		if (rtptp) {
+	
 			struct sockaddr *sa = (struct sockaddr *)&cl->rtp_session->rtp.gs.loc_addr;
 			if (cl->session->turn_enabled) {
+				// TN patch - clear TURN state due to stale nonce and sockets
+				clear_turn_state(rtptp, cl->rtp_turn_context);
+
 				/* Define the RTP endpoint that will perform STUN encapsulation/decapsulation for TURN data */
 				meta_rtp_transport_set_endpoint(rtptp, ms_turn_context_create_endpoint(cl->rtp_turn_context));
 				ms_turn_context_set_server_addr(cl->rtp_turn_context, (struct sockaddr *)&cl->session->ss,
 				                                cl->session->ss_len);
 
-				// Start turn tcp client now if needed
-				if (cl->rtp_turn_context->transport != MS_TURN_CONTEXT_TRANSPORT_UDP) {
+				// TN patch - we always use TCP when TURN is enabled
+				{
 					if (!cl->rtp_turn_context->turn_tcp_client) {
 						cl->rtp_turn_context->turn_tcp_client = ms_turn_tcp_client_new(
 						    cl->rtp_turn_context, cl->rtp_turn_context->transport == MS_TURN_CONTEXT_TRANSPORT_TLS,
@@ -1010,13 +1058,16 @@ static bool_t ice_check_list_gather_candidates(IceCheckList *cl, Session_Index *
 		if (!rtp_session_rtcp_mux_enabled(cl->rtp_session) && rtptp) {
 			struct sockaddr *sa = (struct sockaddr *)&cl->rtp_session->rtcp.gs.loc_addr;
 			if (cl->session->turn_enabled) {
+				// TN patch - clear TURN state due to stale nonce and sockets
+				clear_turn_state(rtptp, cl->rtcp_turn_context);
+
 				/* Define the RTP endpoint that will perform STUN encapsulation/decapsulation for TURN data */
 				meta_rtp_transport_set_endpoint(rtptp, ms_turn_context_create_endpoint(cl->rtcp_turn_context));
 				ms_turn_context_set_server_addr(cl->rtcp_turn_context, (struct sockaddr *)&cl->session->ss,
 				                                cl->session->ss_len);
 
-				// Start turn tcp client now if needed
-				if (cl->rtcp_turn_context->transport != MS_TURN_CONTEXT_TRANSPORT_UDP) {
+				// TN patch - we always use TCP when TURN is enabled
+				{
 					if (!cl->rtcp_turn_context->turn_tcp_client) {
 						cl->rtcp_turn_context->turn_tcp_client = ms_turn_tcp_client_new(
 						    cl->rtcp_turn_context, cl->rtcp_turn_context->transport == MS_TURN_CONTEXT_TRANSPORT_TLS,
@@ -4248,9 +4299,11 @@ static void ice_conclude_processing(IceCheckList *cl, RtpSession *rtp_session, b
  *****************************************************************************/
 
 static void ice_check_list_restart(IceCheckList *cl) {
-	if (cl->remote_ufrag) ms_free(cl->remote_ufrag);
-	if (cl->remote_pwd) ms_free(cl->remote_pwd);
-	cl->remote_ufrag = cl->remote_pwd = NULL;
+	if (!cl->session || !cl->session->keep_credentials_on_restart) {
+		if (cl->remote_ufrag) ms_free(cl->remote_ufrag);
+		if (cl->remote_pwd) ms_free(cl->remote_pwd);
+		cl->remote_ufrag = cl->remote_pwd = NULL;
+	}
 	rtp_session_use_local_addr(cl->rtp_session, "", ""); // Reset the sources of rtp_session
 	bctbx_list_for_each(cl->stun_server_requests, (void (*)(void *))ice_stun_server_request_free);
 	bctbx_list_for_each(cl->transaction_list, (void (*)(void *))ice_free_transaction);
@@ -4286,18 +4339,21 @@ static void ice_check_list_restart(IceCheckList *cl) {
 void ice_session_restart(IceSession *session, IceRole role) {
 	int i;
 
-	ms_warning("ICE session restart");
-	if (session->local_ufrag) ms_free(session->local_ufrag);
-	if (session->local_pwd) ms_free(session->local_pwd);
-	if (session->remote_ufrag) ms_free(session->remote_ufrag);
-	if (session->remote_pwd) ms_free(session->remote_pwd);
+	ms_warning("ICE session restart (keep_credentials=%s)",
+	           session->keep_credentials_on_restart ? "true" : "false");
 
 	session->state = IS_Stopped;
 	session->tie_breaker = generate_tie_breaker();
-	session->local_ufrag = generate_ufrag();
-	session->local_pwd = generate_pwd();
-	session->remote_ufrag = NULL;
-	session->remote_pwd = NULL;
+	if (!session->keep_credentials_on_restart) {
+		if (session->local_ufrag) ms_free(session->local_ufrag);
+		if (session->local_pwd) ms_free(session->local_pwd);
+		if (session->remote_ufrag) ms_free(session->remote_ufrag);
+		if (session->remote_pwd) ms_free(session->remote_pwd);
+		session->local_ufrag = generate_ufrag();
+		session->local_pwd = generate_pwd();
+		session->remote_ufrag = NULL;
+		session->remote_pwd = NULL;
+	}
 	memset(&session->event_time, 0, sizeof(session->event_time));
 	session->send_event = FALSE;
 

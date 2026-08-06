@@ -77,8 +77,9 @@ NatPolicy::NatPolicy(const NatPolicy &other)
 	mUpnpEnabled = other.mUpnpEnabled;
 	mTurnConfigurationEndpoint = other.mTurnConfigurationEndpoint;
 	mTurnUdpEnabled = other.mTurnUdpEnabled;
-	mTurnTcpEnabled = false;
-	mTurnTlsEnabled = false;
+	mTurnTcpEnabled = other.mTurnTcpEnabled; // Originally was set to false
+	mTurnTlsEnabled = other.mTurnTlsEnabled; // Originally was set to false
+	mDelayIceEnabled = other.mDelayIceEnabled;
 }
 
 NatPolicy::~NatPolicy() {
@@ -160,6 +161,7 @@ void NatPolicy::clear() {
 	mTurnUdpEnabled = false;
 	mTurnTcpEnabled = false;
 	mTurnTlsEnabled = false;
+	mDelayIceEnabled = false;
 }
 
 void NatPolicy::setStunServer(const std::string &stunServer) {

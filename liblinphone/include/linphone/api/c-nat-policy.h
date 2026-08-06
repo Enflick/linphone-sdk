@@ -280,6 +280,24 @@ LINPHONE_PUBLIC bool_t linphone_nat_policy_tls_turn_transport_enabled(const Linp
  */
 LINPHONE_PUBLIC LinphoneCore *linphone_nat_policy_get_core(const LinphoneNatPolicy *policy);
 
+// TN patch
+
+/**
+ * Tells whether the delay ICE feature is enabled.
+ * @param policy #LinphoneNatPolicy object @notnil
+ * @return Boolean value telling whether the delay ICE feature is enabled.
+ */
+bool_t linphone_nat_policy_delay_ice_for_external_callback_enabled(const LinphoneNatPolicy *policy);
+
+/**
+ * Tells whether the delay ICE feature is enabled.
+ * @param policy #LinphoneNatPolicy object @notnil
+ * @param enable Boolean value telling whether the delay ICE feature is enabled.
+ */
+void linphone_nat_policy_enable_delay_ice_for_external_callback(LinphoneNatPolicy *policy, bool_t enable);
+
+// TN patch
+
 /**
  * Gets the TURN configuration endpoint.
  * @param policy #LinphoneNatPolicy object @notnil

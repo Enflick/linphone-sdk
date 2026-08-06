@@ -165,6 +165,7 @@ private:
 	bool mAllowLateIce = false;
 	bool mDontDefaultToStunCandidates = false;
 	bool mEnableIntegrityCheck = true;
+	bool mKeepCredentialsOnRestart = false;
 	bool mIceWasDisabled = false; // Remember that at some point ICE was disabled by an incoming offer or answer.
 	bool mInsideGatherIceCandidates;
 };

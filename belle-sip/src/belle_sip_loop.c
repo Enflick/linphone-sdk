@@ -258,6 +258,7 @@ struct belle_sip_main_loop {
 	bctbx_map_t *timer_sources;
 	bctbx_mutex_t
 	    sources_mutex; // mutex to avoid concurency between source addition/removing/cancelling and main loop iteration.
+	_Atomic(uint16_t) destroyed; // TN patch - possible workaround for crash
 	belle_sip_object_pool_t *pool;
 	int nsources;
 	int run;
@@ -302,6 +303,9 @@ void belle_sip_main_loop_remove_source(belle_sip_main_loop_t *ml, belle_sip_sour
 }
 
 static void belle_sip_main_loop_destroy(belle_sip_main_loop_t *ml) {
+	belle_sip_message("belle_sip_main_loop_destroy()");
+	ml->destroyed = 0xffff; // TN patch - possible workaround for crash
+
 	bctbx_iterator_t *it = bctbx_map_ullong_begin(ml->timer_sources);
 	bctbx_iterator_t *end = bctbx_map_ullong_end(ml->timer_sources);
 
@@ -733,7 +737,23 @@ end:
 	belle_sip_free(pfd);
 }
 
+// From https://cs.android.com/android/platform/superproject/main/+/main:bionic/libc/bionic/pthread_mutex.cpp
+// The mutex state field has 0xffff written to it when destroyed
+struct __pthread_mutex_internal_t {
+    _Atomic(uint16_t) state;
+    uint16_t __pad;
+} __attribute__((aligned(4)));
+
+unsigned char linphone_tn_run_loop_read_mutex_state_hack_enabled = 1;
+
+static inline int is_mutex_destroyed(bctbx_mutex_t *mtx) {
+	return ((struct __pthread_mutex_internal_t *)mtx)->state == 0xffff;
+}
+
 void belle_sip_main_loop_run(belle_sip_main_loop_t *ml) {
+	if (ml->destroyed) return; // TN patch - possible workaround for crash
+	if (linphone_tn_run_loop_read_mutex_state_hack_enabled && is_mutex_destroyed(&(ml->sources_mutex))) return; // TN patch - possible workaround for crash
+
 #ifndef _WIN32
 	ml->thread_id = bctbx_thread_self();
 #endif
@@ -755,6 +775,9 @@ int belle_sip_main_loop_quit(belle_sip_main_loop_t *ml) {
 }
 
 void belle_sip_main_loop_sleep(belle_sip_main_loop_t *ml, int milliseconds) {
+	if (ml->destroyed) return; // TN patch - possible workaround for crash
+	if (linphone_tn_run_loop_read_mutex_state_hack_enabled && is_mutex_destroyed(&(ml->sources_mutex))) return; // TN patch - possible workaround for crash
+
 	belle_sip_source_t *s = belle_sip_main_loop_create_timeout(ml, (belle_sip_source_func_t)belle_sip_main_loop_quit,
 	                                                           ml, milliseconds, "Main loop sleep timer");
 

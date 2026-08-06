@@ -50,6 +50,10 @@
 #include "sal/sal_stream_bundle.h"
 #include "utils/payload-type-handler.h"
 
+// TN patch
+extern std::queue<std::function<LinphoneStatus()>> MediaSessionPrivate_iceDeferedPrepareTasks;
+// TN patch
+
 using namespace std;
 
 LINPHONE_BEGIN_NAMESPACE
@@ -4425,13 +4429,43 @@ void MediaSessionPrivate::reinviteToRecoverFromConnectionLoss() {
 	L_Q();
 	lInfo() << "MediaSession [" << q
 	        << "] is going to be updated (reINVITE) in order to recover from lost connectivity";
-	getStreamsGroup().getIceService().resetSession();
-	if (op) {
-		// Reset retry function as we need to recover from a network loss
-		op->resetRetryFunction();
+
+	// TN patch
+	auto deferredTask = [this]() -> LinphoneStatus {
+
+	L_Q();
+	lInfo() << "MediaSessionPrivate::reinviteToRecoverFromConnectionLoss() -> deferredTask()";
+
+	std::shared_ptr<NatPolicy> natPolicy = NatPolicy::toCpp(linphone_core_get_nat_policy(q->getCore()->getCCore()))->getSharedFromThis();
+
+	if (natPolicy) {
+		// Force the reINVITE to use the latest NAT policy from the Core config, this will clone it
+		q->setNatPolicy(natPolicy);
 	}
+	// TN patch
+
+	// Original code start
+	getStreamsGroup().getIceService().resetSession();
 	MediaSessionParams newParams(*getParams());
 	q->update(&newParams, CallSession::UpdateMethod::Invite, q->isCapabilityNegotiationEnabled());
+	// Original code end
+
+	return 0;
+	};
+
+	// TN patch
+	lInfo() << "MediaSessionPrivate::reinviteToRecoverFromConnectionLoss() -> delayIceEnabled=" << (int)natPolicy->delayIceEnabled();
+
+	if (natPolicy->delayIceEnabled()) {
+		lInfo() << "MediaSessionPrivate::reinviteToRecoverFromConnectionLoss() -> linphone_core_notify_delay_ice_callback()";
+
+		::MediaSessionPrivate_iceDeferedPrepareTasks.push(deferredTask);
+		LinphoneCore *core = q->getCore()->getCCore();
+		linphone_core_notify_delay_ice_callback(core);
+	} else {
+		deferredTask();
+	}
+	// TN patch
 }
 
 void MediaSessionPrivate::repairByNewInvite(bool withReplaces) {
@@ -5336,6 +5370,8 @@ LinphoneStatus MediaSession::update(const MediaSessionParams *msp,
 			}
 			return res;
 		};
+
+		lInfo() << "MediaSession::update() -> ice=" << (int)d->natPolicy->iceEnabled() << ", turn=" << (int)d->natPolicy->turnEnabled() << ", tcp_turn=" << (int)d->natPolicy->turnTcpEnabled();
 
 		if (!d->op->getSal()->mediaDisabled()) {
 			const auto preparingStreams = d->getStreamsGroup().prepare();

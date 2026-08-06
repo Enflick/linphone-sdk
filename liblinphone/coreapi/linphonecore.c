@@ -278,6 +278,30 @@ void linphone_core_cbs_set_registration_state_changed(LinphoneCoreCbs *cbs,
 	cbs->vtable->registration_state_changed = cb;
 }
 
+// TN patch
+LinphoneCoreCbsDelayIceCallbackCb linphone_core_cbs_get_delay_ice_callback(LinphoneCoreCbs *cbs) {
+	return cbs->vtable->delay_ice_callback;
+}
+
+void linphone_core_cbs_set_delay_ice_callback(LinphoneCoreCbs *cbs, LinphoneCoreCbsDelayIceCallbackCb cb) {
+	cbs->vtable->delay_ice_callback = cb;
+}
+
+std::queue<std::function<LinphoneStatus()>> MediaSessionPrivate_iceDeferedPrepareTasks;
+
+void MediaSessionPrivate_runIcePrepareTasks() {
+	while (!MediaSessionPrivate_iceDeferedPrepareTasks.empty()) {
+		const auto task = MediaSessionPrivate_iceDeferedPrepareTasks.front();
+		task(); // Ok to discard result?
+		MediaSessionPrivate_iceDeferedPrepareTasks.pop();
+	}
+}
+
+void linphone_core_mark_delay_ice_as_completed(LinphoneCore */*core*/) {
+	MediaSessionPrivate_runIcePrepareTasks();
+}
+// TN patch
+
 void linphone_core_cbs_set_conference_info_received(LinphoneCoreCbs *cbs, LinphoneCoreCbsConferenceInfoReceivedCb cb) {
 	cbs->vtable->conference_info_received = cb;
 }
@@ -6143,6 +6167,18 @@ MSFactory *linphone_core_get_ms_factory(LinphoneCore *lc) {
 	return lc->factory;
 }
 
+// TN patch
+extern unsigned char linphone_tn_terminate_on_cancel_enabled;
+
+bool_t linphone_core_get_terminate_on_cancel_enabled(const LinphoneCore */*core*/) {
+	return linphone_tn_terminate_on_cancel_enabled;
+}
+
+void linphone_core_set_terminate_on_cancel_enabled(LinphoneCore */*core*/, bool_t enable) {
+	linphone_tn_terminate_on_cancel_enabled = enable;
+}
+// TN patch
+
 void linphone_core_set_ringback(LinphoneCore *lc, const char *path) {
 	if (lc->sound_conf.remote_ring != 0) {
 		ms_free(lc->sound_conf.remote_ring);
@@ -6153,6 +6189,19 @@ void linphone_core_set_ringback(LinphoneCore *lc, const char *path) {
 const char *linphone_core_get_ringback(const LinphoneCore *lc) {
 	return lc->sound_conf.remote_ring;
 }
+
+
+// TN patch
+extern unsigned char linphone_tn_run_loop_read_mutex_state_hack_enabled;
+
+bool_t linphone_core_get_run_loop_read_mutex_state_hack_enabled(const LinphoneCore */*core*/) {
+	return linphone_tn_run_loop_read_mutex_state_hack_enabled;
+}
+
+void linphone_core_set_run_loop_read_mutex_state_hack_enabled(LinphoneCore */*core*/, bool_t enable) {
+	linphone_tn_run_loop_read_mutex_state_hack_enabled = enable;
+}
+// TN patch
 
 void linphone_core_enable_echo_cancellation(LinphoneCore *lc, bool_t val) {
 	lc->sound_conf.ec = val;
@@ -6261,6 +6310,20 @@ const char *linphone_core_get_stun_server(const LinphoneCore *lc) {
 	if (lc->nat_policy != NULL) return linphone_nat_policy_get_stun_server(lc->nat_policy);
 	else return linphone_config_get_string(lc->config, "net", "stun_server", NULL);
 }
+
+#ifdef __APPLE__
+// TN patch
+extern unsigned char linphone_tn_check_audio_unit_is_up_synchronous;
+
+bool_t linphone_core_get_check_audio_unit_is_up_synchronous_enabled(const LinphoneCore */*core*/) {
+	return linphone_tn_check_audio_unit_is_up_synchronous;
+}
+
+void linphone_core_set_check_audio_unit_is_up_synchronous_enabled(LinphoneCore */*core*/, bool_t enable) {
+	linphone_tn_check_audio_unit_is_up_synchronous = enable;
+}
+// TN patch
+#endif
 
 bool_t linphone_core_upnp_available() {
 	return FALSE;
@@ -8186,6 +8249,10 @@ int linphone_core_get_calls_nb(const LinphoneCore *lc) {
 
 void linphone_core_activate_audio_session(LinphoneCore *lc, bool_t actived) {
 	L_GET_CPP_PTR_FROM_C_OBJECT(lc)->soundcardActivateAudioSession(actived);
+}
+
+bool_t linphone_core_is_audio_session_active(LinphoneCore* lc) {
+	return L_GET_CPP_PTR_FROM_C_OBJECT(lc)->soundcardIsAudioSessionActive();
 }
 
 void linphone_core_configure_audio_session(LinphoneCore *lc) {

@@ -192,12 +192,24 @@ bool OfferAnswerEngine::onlyTelephoneEvent(const std::list<OrtpPayloadType *> &l
 
 OrtpPayloadType *OfferAnswerEngine::genericMatch(const std::list<OrtpPayloadType *> &local_payloads,
                                                  const OrtpPayloadType *refpt,
-                                                 BCTBX_UNUSED(const std::list<OrtpPayloadType *> &remote_payloads)) {
+                                                 const std::list<OrtpPayloadType *> &remote_payloads) {
 	for (const auto &pt : local_payloads) {
+		// ms_message("local_payload (%s/%i/%i) vs ref (%s/%i/%i)", pt->mime_type, pt->clock_rate, pt->channels, refpt->mime_type, refpt->clock_rate, refpt->channels);
 		if (pt->mime_type && refpt->mime_type && strcasecmp(pt->mime_type, refpt->mime_type) == 0 &&
 		    pt->clock_rate == refpt->clock_rate && pt->channels == refpt->channels)
 			return payload_type_clone(pt);
 	}
+	// TN patch
+	// We need to check and match from the remote payloads as well
+	for (const auto & pt : remote_payloads) {
+		// ms_message("remote_payload (%s/%i/%i) vs ref (%s/%i/%i)", pt->mime_type, pt->clock_rate, pt->channels, refpt->mime_type, refpt->clock_rate, refpt->channels);
+		if ( pt->mime_type && refpt->mime_type
+			&& strcasecmp(pt->mime_type, refpt->mime_type)==0
+			&& pt->clock_rate==refpt->clock_rate
+			&& pt->channels==refpt->channels)
+			return payload_type_clone(pt);
+	}
+	// TN patch
 	return NULL;
 }
 
@@ -208,21 +220,10 @@ PayloadType *OfferAnswerEngine::findPayloadTypeBestMatch(const std::list<OrtpPay
                                                          const PayloadType *refpt,
                                                          const std::list<OrtpPayloadType *> &remote_payloads,
                                                          bool reading_response) {
-	PayloadType *ret = NULL;
-	MSOfferAnswerContext *ctx = NULL;
-
-	// When a stream is inactive, refpt->mime_type might be null
-	if (refpt->mime_type && (ctx = ms_factory_create_offer_answer_context(mMsFactory, refpt->mime_type))) {
-		ms_message("Doing offer/answer processing with specific provider for codec [%s]", refpt->mime_type);
-		auto local_payloads_list = Utils::listToBctbxList(local_payloads);
-		auto remote_payloads_list = Utils::listToBctbxList(remote_payloads);
-		ret = ms_offer_answer_context_match_payload(ctx, local_payloads_list, refpt, remote_payloads_list,
-		                                            reading_response);
-		bctbx_list_free(local_payloads_list);
-		bctbx_list_free(remote_payloads_list);
-		ms_offer_answer_context_destroy(ctx);
-		return ret;
-	}
+	// TN patch
+	// Always use genericMatch to keep the logic simple, the original logic was picking the wrong payload type
+	(void)reading_response;
+	// TN patch
 	return OfferAnswerEngine::genericMatch(local_payloads, refpt, remote_payloads);
 }
 

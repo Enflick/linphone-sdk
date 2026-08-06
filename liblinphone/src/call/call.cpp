@@ -1102,6 +1102,12 @@ LinphoneStatus Call::update(const MediaSessionParams *msp) {
 	return static_pointer_cast<MediaSession>(getActiveSession())->update(msp);
 }
 
+// TN patch
+void Call::reconnect() {
+	static_pointer_cast<MediaSession>(getActiveSession())->reconnect();
+}
+// TN patch
+
 void Call::zoomVideo(float zoomFactor, float *cx, float *cy) {
 	zoomVideo(zoomFactor, *cx, *cy);
 }

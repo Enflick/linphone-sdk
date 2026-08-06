@@ -149,6 +149,7 @@ public:
 	                      const UpdateMethod method = UpdateMethod::Default,
 	                      const std::string &subject = "",
 	                      const std::shared_ptr<Content> content = nullptr);
+	void reconnect();
 
 	CallSessionParams *getCurrentParams() const;
 	LinphoneCallDir getDirection() const;

@@ -37,9 +37,9 @@ if(ENABLE_ASSETS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/hello8000.wav"
 		"${CMAKE_CURRENT_SOURCE_DIR}/incoming_chat.wav"
 		"${CMAKE_CURRENT_SOURCE_DIR}/ringback.wav"
-		"${CMAKE_CURRENT_SOURCE_DIR}/dont_wait_too_long.mkv"
+		# "${CMAKE_CURRENT_SOURCE_DIR}/dont_wait_too_long.mkv"
 		"${CMAKE_CURRENT_SOURCE_DIR}/toy-mono.wav"
-		"${CMAKE_CURRENT_SOURCE_DIR}/silence.mkv"
+		# "${CMAKE_CURRENT_SOURCE_DIR}/silence.mkv"
 		PARENT_SCOPE
 	)
 else()
@@ -62,7 +62,7 @@ if(ENABLE_GTK_UI)
 	)
 endif()
 
-if(ENABLE_ASSETS)
-	add_subdirectory(rings)
-	set(RING_FILES ${RING_FILES} PARENT_SCOPE)
-endif()
+# if(ENABLE_ASSETS)
+# 	add_subdirectory(rings)
+# 	set(RING_FILES ${RING_FILES} PARENT_SCOPE)
+# endif()

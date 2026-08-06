@@ -347,6 +347,14 @@ void Core::soundcardActivateAudioSession(bool actived) {
 	}
 }
 
+bool Core::soundcardIsAudioSessionActive() {
+	MSSndCard *card = getCCore()->sound_conf.play_sndcard;
+	if (card) {
+		return ms_snd_card_is_audio_session_active(card);
+	}
+	return false;
+}
+
 void Core::soundcardConfigureAudioSession() {
 	MSSndCard *card = getCCore()->sound_conf.play_sndcard;
 	if (card) {

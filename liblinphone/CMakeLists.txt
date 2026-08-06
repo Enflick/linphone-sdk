@@ -208,7 +208,7 @@ endif()
 
 if(ENABLE_CXX_WRAPPER OR ENABLE_CSHARP_WRAPPER OR ENABLE_JAVA_WRAPPER OR ENABLE_SWIFT_WRAPPER OR ENABLE_DOC OR ENABLE_PYTHON_WRAPPER)
 	find_package(Python3 REQUIRED)
-	check_python_module(pystache)
+	# check_python_module(pystache)
 	check_python_module(six)
 	if(ENABLE_DOC)
 		#check_python_module(swift_domain)

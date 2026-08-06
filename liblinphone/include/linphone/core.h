@@ -197,6 +197,7 @@ typedef void (*LinphoneCoreCbFunc)(LinphoneCore *core, void *user_data);
 typedef struct _LinphoneCoreVTable {
 	LinphoneCoreGlobalStateChangedCb global_state_changed;             /**< Notifies when global state changes */
 	LinphoneCoreRegistrationStateChangedCb registration_state_changed; /**< Notifies when registration state changes */
+	LinphoneCoreCbsDelayIceCallbackCb delay_ice_callback;              /**< TN patch - Notifies the delay ICE callback */
 	LinphoneCoreCallStateChangedCb call_state_changed;                 /**< Notifies when call state changes */
 	LinphoneCoreNotifyPresenceReceivedCb notify_presence_received; /**< Notifies when presence events are received */
 	LinphoneCoreNotifyPresenceReceivedForUriOrTelCb
@@ -303,6 +304,30 @@ typedef struct _LinphoneCoreVTable {
 	LinphoneCoreCbsMessageRetractedCb message_retracted;
 	void *user_data; /**< User data associated with the above callbacks */
 } LinphoneCoreVTable;
+
+// TN patch
+/*
+ * Set the delay ICE callback.
+ * @param cbs #LinphoneCoreCbs object. @notnil
+ * @param cb The delay ICE callback to be used.
+ */
+LINPHONE_PUBLIC void
+linphone_core_cbs_set_delay_ice_callback(LinphoneCoreCbs *cbs, LinphoneCoreCbsDelayIceCallbackCb cb);
+
+/**
+ * Get the delay ICE callback.
+ * @param cbs #LinphoneCoreCbs object. @notnil
+ * @return The current delay ICE callback.
+ */
+LINPHONE_PUBLIC LinphoneCoreCbsDelayIceCallbackCb linphone_core_cbs_get_delay_ice_callback(LinphoneCoreCbs *cbs);
+
+/**
+ * Marks delay ICE as completed.
+ * @param cbs #LinphoneCore object. @notnil
+ * @ingroup misc
+ */
+LINPHONE_PUBLIC void linphone_core_mark_delay_ice_as_completed(LinphoneCore *core);
+// TN patch
 
 /**
  * @brief Instantiates a vtable with all arguments set to NULL.
@@ -3236,6 +3261,27 @@ LINPHONE_PUBLIC LINPHONE_DEPRECATED void linphone_core_set_stun_server(LinphoneC
  */
 LINPHONE_PUBLIC LINPHONE_DEPRECATED const char *linphone_core_get_stun_server(const LinphoneCore *core);
 
+#ifdef __APPLE__
+// TN patch
+
+/**
+ * Tells whether we should enable a synchronous check_audio_unit_is_up on the run loop.
+ * @param core #LinphoneCore object @notnil
+ * @ingroup group_media_parameters
+ */
+bool_t linphone_core_get_check_audio_unit_is_up_synchronous_enabled(const LinphoneCore *core);
+
+/**
+ * Tells whether we should enable a synchronous check_audio_unit_is_up on the run loop.
+ * @param core #LinphoneCore object @notnil
+ * @param enable Boolean value telling whether the feature is enabled.
+ * @ingroup group_media_parameters
+ */
+void linphone_core_set_check_audio_unit_is_up_synchronous_enabled(LinphoneCore *core, bool_t enable);
+
+// TN patch
+#endif
+
 /**
  * Return the availability of uPnP.
  * @return true if uPnP is available otherwise return false.
@@ -3622,6 +3668,25 @@ LINPHONE_PUBLIC void linphone_core_set_root_ca_data(LinphoneCore *core, const ch
  */
 LINPHONE_PUBLIC void linphone_core_set_ssl_config(LinphoneCore *core, void *ssl_config);
 
+// TN patch
+
+/**
+ * Tells whether we should terminate an established call on a SIP cancel.
+ * @param core #LinphoneCore object @notnil
+ * @ingroup group_media_parameters
+ */
+LINPHONE_PUBLIC bool_t linphone_core_get_terminate_on_cancel_enabled(const LinphoneCore *core);
+
+/**
+ * Tells whether we should terminate an established call on a SIP cancel.
+ * @param core #LinphoneCore object @notnil
+ * @param enable Boolean value telling whether the feature is enabled.
+ * @ingroup group_media_parameters
+ */
+LINPHONE_PUBLIC void linphone_core_set_terminate_on_cancel_enabled(LinphoneCore *core, bool_t enable);
+
+// TN patch
+
 /**
  * Sets the path to a WAV file used for ringing back.
  * Ringback means the ring that is heard when it is ringing at the remote party.
@@ -3670,6 +3735,25 @@ LINPHONE_PUBLIC void linphone_core_set_ring_during_incoming_early_media(Linphone
  * @ingroup group_media_parameters
  */
 LINPHONE_PUBLIC bool_t linphone_core_get_ring_during_incoming_early_media(const LinphoneCore *core);
+
+// TN patch
+
+/**
+ * Tells whether we should enable a hack to read the destroyed mutex state on the run loop.
+ * @param core #LinphoneCore object @notnil
+ * @ingroup group_media_parameters
+ */
+LINPHONE_PUBLIC bool_t linphone_core_get_run_loop_read_mutex_state_hack_enabled(const LinphoneCore *core);
+
+/**
+ * Tells whether we should enable a hack to read the destroyed mutex state on the run loop.
+ * @param core #LinphoneCore object @notnil
+ * @param enable Boolean value telling whether the feature is enabled.
+ * @ingroup group_media_parameters
+ */
+LINPHONE_PUBLIC void linphone_core_set_run_loop_read_mutex_state_hack_enabled(LinphoneCore *core, bool_t enable);
+
+// TN patch
 
 LINPHONE_PUBLIC LinphoneStatus linphone_core_preview_ring(LinphoneCore *core,
                                                           const char *ring,
@@ -6108,6 +6192,29 @@ LINPHONE_PUBLIC LinphoneStatus linphone_core_set_network_simulator_params(Linpho
  * @donotwrap
  **/
 LINPHONE_PUBLIC const OrtpNetworkSimulatorParams *linphone_core_get_network_simulator_params(const LinphoneCore *core);
+
+// TN patch
+
+/**
+ * @brief Enable or disable a simple network simulator that drops a percentage of RTP packets.
+ *
+ * Convenience wrapper around the oRTP network simulator (whose params struct is not wrapped),
+ * intended for testing packet-loss concealment such as Opus deep PLC / OSCE. Only RTP is
+ * affected (not RTCP). Applies immediately to running streams.
+ *
+ * @param core the #LinphoneCore @notnil
+ * @param enabled TRUE to enable the simulator, FALSE to disable it.
+ * @param loss_rate percentage of RTP packets to drop, in the 0-100 range.
+ * @param inbound TRUE to drop received packets (to exercise the local decoder's PLC), FALSE to
+ *        drop sent packets.
+ * @ingroup group_media_parameters
+ */
+LINPHONE_PUBLIC void linphone_core_enable_network_simulator_packet_loss(LinphoneCore *core,
+                                                                        bool_t enabled,
+                                                                        float loss_rate,
+                                                                        bool_t inbound);
+
+// TN patch
 
 /**
  * Set the video preset to be used for video calls.

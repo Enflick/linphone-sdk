@@ -173,6 +173,7 @@ public:
 	std::shared_ptr<Call> getCurrentCall() const;
 	LinphoneStatus pauseAllCalls();
 	void soundcardActivateAudioSession(bool active);
+	bool soundcardIsAudioSessionActive();
 	void soundcardConfigureAudioSession();
 	void soundcardEnableCallkit(bool enabled);
 	void soundcardAudioRouteChanged();

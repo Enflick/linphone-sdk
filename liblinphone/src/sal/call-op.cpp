@@ -29,6 +29,8 @@
 #include <belle-sip/defs.h>
 #include <belle-sip/provider.h>
 
+unsigned char linphone_tn_terminate_on_cancel_enabled = 0;
+
 using namespace std;
 
 LINPHONE_BEGIN_NAMESPACE
@@ -528,9 +530,6 @@ void SalCallOp::processResponseCb(void *userCtx, const belle_sip_response_event_
 	lInfo() << "Op [" << op << "] receiving call response [" << code << "], dialog is [" << dialog << "] in state ["
 	        << belle_sip_dialog_state_to_string(dialogState) << "]";
 	op->ref(); // To make sure no cb will destroy op
-	if (code != 491) {
-		op->resetRetryFunction(); // Retry function has been either executed or not needed anymore
-	}
 
 	auto request = belle_sip_transaction_get_request(BELLE_SIP_TRANSACTION(clientTransaction));
 	string method = belle_sip_request_get_method(request);
@@ -1015,12 +1014,16 @@ void SalCallOp::processRequestEventCb(void *userCtx, const belle_sip_request_eve
 		case BELLE_SIP_DIALOG_EARLY:
 			if (method == "CANCEL") {
 				if (belle_sip_request_event_get_server_transaction(event)) {
+					lInfo() << "SIP CANCEL case 1 - pre dialog terminating call";
+
 					// First answer 200 ok to cancel
 					belle_sip_server_transaction_send_response(serverTransaction,
 					                                           op->createResponseFromRequest(request, 200));
 					// Terminate invite transaction
 					op->callTerminated(op->mPendingServerTransaction, 487, request);
 				} else {
+					lInfo() << "SIP CANCEL case 2 - pre dialog call does not exist";
+
 					// Call leg does not exist
 					belle_sip_server_transaction_send_response(serverTransaction,
 					                                           op->createResponseFromRequest(request, 481));
@@ -1124,10 +1127,19 @@ void SalCallOp::processRequestEventCb(void *userCtx, const belle_sip_request_eve
 			} else if (method == "CANCEL") {
 				auto lastTransaction = belle_sip_dialog_get_last_transaction(op->mDialog);
 				if (!lastTransaction || !isAPendingIncomingInviteTransaction(lastTransaction)) {
+					lInfo() << "SIP CANCEL case 3 - post dialog";
+
 					// Call leg does not exist because 200ok already sent
 					belle_sip_server_transaction_send_response(serverTransaction,
 					                                           op->createResponseFromRequest(request, 481));
+
+					if (linphone_tn_terminate_on_cancel_enabled) {
+						lInfo() << "SIP CANCEL case 3 - post dialog terminate on cancel enabled";
+						op->callTerminated(serverTransaction, 200, request);
+					}
 				} else {
+					lInfo() << "SIP CANCEL case 4 - post dialog reINVITE";
+
 					// CANCEL on re-INVITE for which a 200ok has not been sent yet
 					belle_sip_server_transaction_send_response(serverTransaction,
 					                                           op->createResponseFromRequest(request, 200));

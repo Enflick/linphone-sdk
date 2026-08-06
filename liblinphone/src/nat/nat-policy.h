@@ -115,6 +115,9 @@ public:
 		return mUserData;
 	}
 
+	void enableDelayIce(bool enable) { mDelayIceEnabled = enable; }
+	bool delayIceEnabled() const { return mDelayIceEnabled; }
+
 	const std::string &getRef() const {
 		return mRef;
 	}
@@ -165,6 +168,7 @@ private:
 	bool mTurnUdpEnabled = false;
 	bool mTurnTcpEnabled = false;
 	bool mTurnTlsEnabled = false;
+	bool mDelayIceEnabled = false;
 };
 
 LINPHONE_END_NAMESPACE

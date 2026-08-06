@@ -561,6 +561,12 @@ LinphoneStatus linphone_call_update(LinphoneCall *call, const LinphoneCallParams
 	return Call::toCpp(call)->update(params ? L_GET_CPP_PTR_FROM_C_OBJECT(params) : nullptr);
 }
 
+// TN patch
+void linphone_call_reconnect (LinphoneCall *call) {
+	Call::toCpp(call)->reconnect();
+}
+// TN patch
+
 LinphoneStatus linphone_call_defer_update(LinphoneCall *call) {
 	CallLogContextualizer logContextualizer(call);
 	return Call::toCpp(call)->deferUpdate();

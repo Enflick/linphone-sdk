@@ -135,6 +135,7 @@ public:
 	LinphoneStatus transfer(const std::string &dest);
 	LinphoneStatus update(const MediaSessionParams *msp = nullptr);
 	LinphoneStatus updateFromConference(const MediaSessionParams *msp = nullptr);
+	void reconnect();
 	void zoomVideo(float zoomFactor, float *cx, float *cy);
 	void zoomVideo(float zoomFactor, float cx, float cy);
 

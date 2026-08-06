@@ -820,14 +820,6 @@ bool CallSessionPrivate::isReadyForInvite() const {
 
 bool CallSessionPrivate::isUpdateAllowed(CallSession::State &nextState, bool hasMedia) const {
 	L_Q();
-	if (op->hasRetryFunction()) {
-		lWarning() << "Unable to send reINVITE or UPDATE request right now because " << *q << " (local address "
-		           << *q->getLocalAddress() << " remote address "
-		           << (q->getRemoteAddress() ? q->getRemoteAddress()->toString() : "sip:")
-		           << ") needs to execute the request which was replied by a 491 Request Pending first.";
-		return false;
-	}
-
 	switch (state) {
 		case CallSession::State::IncomingReceived:
 		case CallSession::State::PushIncomingReceived:
@@ -1224,40 +1216,15 @@ CallSessionPrivate::ContactInfo CallSessionPrivate::chooseContact() const {
 
 void CallSessionPrivate::reinviteToRecoverFromConnectionLoss() {
 	L_Q();
-	lInfo() << *q << " is going to be updated (reINVITE) in order to recover from lost connectivity";
-	if (op) {
-		// Reset retry function as we need to recover from a network loss
-		op->resetRetryFunction();
-	}
+	lInfo() << "CallSession [" << q << "] is going to be updated (reINVITE) in order to recover from lost connectivity";
 	q->update(mParams, CallSession::UpdateMethod::Invite);
 }
 
 void CallSessionPrivate::repairByNewInvite(bool withReplaces) {
 	L_Q();
-
-	// Default Replaces header (RFC3891) to the sal setting. Nonetheless if the supported header of the account should
-	// be used, then override it
-	bool replacesSupported = op->getSal()->hasSupportedTag("replaces");
-	const auto &account = getDestAccount();
-	if (account) {
-		const auto &accountParams = account->getAccountParams();
-		if (accountParams && accountParams->useSupportedTags()) {
-			replacesSupported = accountParams->hasSupportedTag("replaces");
-		}
-	}
-
-	if (withReplaces && !replacesSupported) {
-		lInfo() << "Terminate " << *q
-		        << " because it is not possible to recover it if the Replaces header (RFC3891) is not supported";
-		terminate();
-		return;
-	}
-
-	lInfo() << *q << " is going to have a new INVITE one in order to recover from lost connectivity; "
-	        << (withReplaces ? "with" : "without") << " Replaces header";
-
-	// Reset retry function as we need to repair the INVITE session
-	op->resetRetryFunction();
+	lInfo() << "CallSession [" << q
+	        << "] is going to have a new INVITE one in order to recover from lost connectivity; with Replaces header:"
+	        << (withReplaces ? "yes" : "no");
 
 	// FIXME: startInvite shall() accept a list of bodies.
 	// Since it is not the case, we can only re-use the first one.
@@ -1950,6 +1917,13 @@ LinphoneStatus CallSession::update(const CallSessionParams *csp,
 	}
 	return result;
 }
+
+// TN patch
+void CallSession::reconnect() {
+	L_D();
+	d->reinviteToRecoverFromConnectionLoss();
+}
+// TN patch
 
 // -----------------------------------------------------------------------------
 

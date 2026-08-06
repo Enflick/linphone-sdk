@@ -531,6 +531,12 @@ void ms_snd_card_notify_audio_session_activated(MSSndCard *obj, bool_t activated
 	if (obj->desc->audio_session_activated != NULL) obj->desc->audio_session_activated(obj, activated);
 }
 
+bool_t ms_snd_card_is_audio_session_active(MSSndCard *obj) {
+	if (obj->desc->audio_session_is_active != NULL)
+		return obj->desc->audio_session_is_active(obj);
+	return FALSE;
+}
+
 void ms_snd_card_notify_audio_route_changed(MSSndCard *obj) {
 	if (obj->desc->audio_route_changed != NULL) obj->desc->audio_route_changed(obj);
 }

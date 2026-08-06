@@ -137,6 +137,15 @@ typedef void (*LinphoneCoreCbsRegistrationStateChangedCb)(LinphoneCore *core,
  */
 typedef LinphoneCoreCbsRegistrationStateChangedCb LinphoneCoreRegistrationStateChangedCb;
 
+// TN patch
+/**
+ * Delay ICE callback
+ * @param core the #LinphoneCore @notnil
+ * @ingroup Proxies
+ */
+typedef void (*LinphoneCoreCbsDelayIceCallbackCb)(LinphoneCore *core);
+// TN patch
+
 /**
  * Report status change for a friend previously added to the #LinphoneCore with linphone_core_add_friend().
  * @param core #LinphoneCore object @notnil
