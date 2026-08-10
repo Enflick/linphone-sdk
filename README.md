@@ -22,13 +22,15 @@ otherwise.
 
 ### iOS distribution
 
-Prebuilt iOS releases are reviewed on the package-only `ios-spm` branch of this
-repository. SwiftPM recursively initializes gitlinks, so publishing the package
-from `main` would make app resolution clone the native SDK dependency graph.
-Each distribution commit must identify its source commit from `main`, include
-matching device and simulator XCFrameworks and the generated Swift wrapper, and
-be pinned by exact revision in consuming apps. Do not publish new releases from
-`linphone_patches`.
+Prebuilt iOS releases are published to the private Nexus `ios-release`
+repository. Their SwiftPM manifest and generated wrapper are reviewed on the
+package-only `ios-spm` branch of this repository. SwiftPM recursively
+initializes gitlinks, so publishing the package from `main` would make app
+resolution clone the native SDK dependency graph. Each distribution commit
+must identify its source commit from `main`, reference matching device and
+simulator XCFrameworks in Nexus by checksum, and be pinned by exact revision in
+consuming apps. Do not publish new releases from `linphone_patches` or commit
+release binaries to Git.
 
 ### Repository layout and dependencies
 
