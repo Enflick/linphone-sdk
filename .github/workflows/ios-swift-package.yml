@@ -1,0 +1,40 @@
+name: iOS Swift package
+
+on:
+  pull_request:
+    paths:
+      - Package.swift
+      - Sources/linphonesw/**
+      - XCFrameworks/**
+      - .github/workflows/ios-swift-package.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Package.swift
+      - Sources/linphonesw/**
+      - XCFrameworks/**
+      - .github/workflows/ios-swift-package.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Check out SDK
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate package manifest
+        run: swift package dump-package
+
+      - name: Build iOS simulator package
+        run: >-
+          xcodebuild
+          -scheme linphonesw
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/linphone-swift-package"
+          CODE_SIGNING_ALLOWED=NO
+          build

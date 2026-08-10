@@ -20,6 +20,21 @@ decoded-audio tap used by the calling-quality harness, and the tested mobile
 Opus OSCE configuration. They apply to both platforms unless a commit says
 otherwise.
 
+### iOS Swift package
+
+The repository root is also the Swift package consumed by the TextNow iOS app.
+`Package.swift` exposes the `linphonesw` product, `Sources/linphonesw` contains
+the generated Swift wrapper, and `XCFrameworks` contains the device and
+simulator binaries built from this fork. This keeps native source and iOS
+delivery in one repository; do not publish new artifacts from
+`linphone_patches`.
+
+When native source changes, rebuild all checked-in XCFrameworks from the same
+commit, regenerate the wrapper if the public API changed, and verify the package
+for both iOS device and simulator architectures before updating an app pin.
+The pull-request check validates that the checked-in package remains linkable;
+it does not replace a native rebuild.
+
 ### Repository layout and dependencies
 
 This SDK already contains the TextNow-modified Linphone components as ordinary
@@ -45,8 +60,8 @@ gitlink here.
    carrying any Enflick change.
 3. Replay the Enflick commits from `main` in dependency order; resolve conflicts
    in the SDK source, not by adding standalone patch files.
-4. Build Android and iOS from the same resulting commit and run their relevant
-   call/audio tests.
+4. Build Android and iOS from the same resulting commit, replace the checked-in
+   iOS XCFrameworks and wrapper, and run their relevant call/audio tests.
 5. Record the upstream tag, rebuilt artifacts, and validation evidence in the
    pull request. Merge the shared source update to `main` only after both
    platform checks are green.
