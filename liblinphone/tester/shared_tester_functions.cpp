@@ -1259,3 +1259,7 @@ const char *find_custom_header_in_account_sal(LinphoneAccount *account, const ch
 	}
 	return header;
 }
+
+char *liblinphone_tester_filter_recv_fmtp(const char *recv_fmtp) {
+	return bctbx_strdup(L_STRING_TO_C(SalStreamDescription::filterRecvFmtp(recv_fmtp)));
+}

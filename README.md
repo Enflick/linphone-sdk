@@ -20,6 +20,18 @@ decoded-audio tap used by the calling-quality harness, and the tested mobile
 Opus OSCE configuration. They apply to both platforms unless a commit says
 otherwise.
 
+### iOS distribution
+
+Prebuilt iOS releases are published to the private Nexus `ios-release`
+repository. Their SwiftPM manifest and generated wrapper are reviewed on the
+package-only `ios-spm` branch of this repository. SwiftPM recursively
+initializes gitlinks, so publishing the package from `main` would make app
+resolution clone the native SDK dependency graph. Each distribution commit
+must identify its source commit from `main`, reference matching device and
+simulator XCFrameworks in Nexus by checksum, and be pinned by exact revision in
+consuming apps. Do not publish new releases from `linphone_patches` or commit
+release binaries to Git.
+
 ### Repository layout and dependencies
 
 This SDK already contains the TextNow-modified Linphone components as ordinary
@@ -64,8 +76,8 @@ git fetch upstream --tags
 ```
 
 The rest of this document is the upstream build guide. Follow its platform
-requirements and build presets, then use Enflick's artifact publication process
-for release outputs.
+requirements and build presets, then publish iOS release outputs through the
+`ios-spm` branch.
 
 Linphone-SDK is a project that bundles Liblinphone and its dependencies as git submodules, in the purpose of simplifying
 the compilation and packaging of the whole Liblinphone suite, comprising Mediastreamer2, Belle-sip, oRTP and many others.
