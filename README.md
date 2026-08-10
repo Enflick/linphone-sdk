@@ -39,6 +39,11 @@ a real publication is restricted to `main` and requires the repository to
 receive the organization secrets `NEXUS_CAPI_USER` and
 `NEXUS_CAPI_PASSWORD`. The build job never receives those credentials.
 
+The parallel `Android Release Publish` workflow builds the four-ABI release and
+debug AAR publications, stages their immutable Maven version directories, and
+publishes them to the Nexus `linphone-tn` repository. It uses the same
+credential-free build and credential-scoped publish boundary as the iOS flow.
+
 ### Repository layout and dependencies
 
 This SDK already contains the TextNow-modified Linphone components as ordinary
