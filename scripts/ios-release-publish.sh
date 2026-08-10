@@ -284,14 +284,34 @@ load_release_context() {
 verify_xcframework_zip() {
   local zip_file="$1"
   local bundle_name
+  local framework_name
   local entries
+  local debug_symbol_library_count
 
   bundle_name="$(basename "$zip_file" .zip)"
+  framework_name="${bundle_name%.xcframework}"
   entries="$(unzip -Z1 "$zip_file")"
   printf '%s\n' "$entries" | grep -q "^${bundle_name}/ios-arm64/" \
     || die "${zip_file} is missing ios-arm64"
   printf '%s\n' "$entries" | grep -q "^${bundle_name}/ios-arm64_x86_64-simulator/" \
     || die "${zip_file} is missing ios-arm64_x86_64-simulator"
+  printf '%s\n' "$entries" | grep -q "^${bundle_name}/ios-arm64/dSYMs/${framework_name}\.framework\.dSYM/Contents/Resources/DWARF/${framework_name}$" \
+    || die "${zip_file} is missing the ios-arm64 dSYM DWARF binary"
+  printf '%s\n' "$entries" | grep -q "^${bundle_name}/ios-arm64_x86_64-simulator/dSYMs/${framework_name}\.framework\.dSYM/Contents/Resources/DWARF/${framework_name}$" \
+    || die "${zip_file} is missing the simulator dSYM DWARF binary"
+  debug_symbol_library_count="$(python3 - "$zip_file" "${bundle_name}/Info.plist" <<'PY'
+import plistlib
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    plist = plistlib.loads(archive.read(sys.argv[2]))
+libraries = plist.get("AvailableLibraries", [])
+print(sum(library.get("DebugSymbolsPath") == "dSYMs" for library in libraries))
+PY
+)"
+  [ "$debug_symbol_library_count" -eq 2 ] \
+    || die "${zip_file} does not declare dSYMs for both XCFramework slices"
 }
 
 verify_expected_targets() {
@@ -663,6 +683,7 @@ main() {
   fi
 
   require_cmd curl
+  require_cmd python3
   require_cmd shasum
   require_cmd unzip
   if $PUBLISH_STAGED; then
@@ -670,7 +691,6 @@ main() {
   else
     require_cmd cmake
     require_cmd git
-    require_cmd python3
     require_cmd zip
 
     build_if_needed

@@ -69,9 +69,21 @@ EOF
 
 for target in "${EXPECTED_TARGETS[@]}"; do
   fixture_dir="${TEST_ROOT}/${target}.xcframework"
-  mkdir -p "${fixture_dir}/ios-arm64" "${fixture_dir}/ios-arm64_x86_64-simulator"
+  mkdir -p \
+    "${fixture_dir}/ios-arm64/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF" \
+    "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF"
   printf '%s\n' "${target}-device" > "${fixture_dir}/ios-arm64/${target}"
   printf '%s\n' "${target}-sim" > "${fixture_dir}/ios-arm64_x86_64-simulator/${target}"
+  printf '%s\n' "${target}-device-symbols" > "${fixture_dir}/ios-arm64/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF/${target}"
+  printf '%s\n' "${target}-sim-symbols" > "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF/${target}"
+  cat > "${fixture_dir}/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>AvailableLibraries</key><array>
+<dict><key>LibraryIdentifier</key><string>ios-arm64</string><key>DebugSymbolsPath</key><string>dSYMs</string></dict>
+<dict><key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string><key>DebugSymbolsPath</key><string>dSYMs</string></dict>
+</array></dict></plist>
+EOF
   (
     cd "${TEST_ROOT}"
     zip -rq "${PACKAGE_DIR}/XCFrameworks/${target}.xcframework.zip" "${target}.xcframework"
@@ -81,14 +93,44 @@ done
 
 extra_target="belcard"
 fixture_dir="${TEST_ROOT}/${extra_target}.xcframework"
-mkdir -p "${fixture_dir}/ios-arm64" "${fixture_dir}/ios-arm64_x86_64-simulator"
+mkdir -p \
+  "${fixture_dir}/ios-arm64/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF" \
+  "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF"
 printf '%s\n' "${extra_target}-device" > "${fixture_dir}/ios-arm64/${extra_target}"
 printf '%s\n' "${extra_target}-sim" > "${fixture_dir}/ios-arm64_x86_64-simulator/${extra_target}"
+printf '%s\n' symbols > "${fixture_dir}/ios-arm64/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF/${extra_target}"
+printf '%s\n' symbols > "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF/${extra_target}"
+cat > "${fixture_dir}/Info.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>AvailableLibraries</key><array>
+<dict><key>LibraryIdentifier</key><string>ios-arm64</string><key>DebugSymbolsPath</key><string>dSYMs</string></dict>
+<dict><key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string><key>DebugSymbolsPath</key><string>dSYMs</string></dict>
+</array></dict></plist>
+EOF
 (
   cd "${TEST_ROOT}"
   zip -rq "${PACKAGE_DIR}/XCFrameworks/${extra_target}.xcframework.zip" "${extra_target}.xcframework"
 )
 rm -rf "${fixture_dir}"
+
+MISSING_DSYM_BUILD_DIR="${TEST_ROOT}/missing-dsym-build"
+cp -R "${BUILD_DIR}" "${MISSING_DSYM_BUILD_DIR}"
+zip -dq \
+  "${MISSING_DSYM_BUILD_DIR}/linphone-sdk-swift-ios/XCFrameworks/linphone.xcframework.zip" \
+  'linphone.xcframework/ios-arm64/dSYMs/*'
+set +e
+bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+  --skip-build \
+  --build-only \
+  --build-dir "${MISSING_DSYM_BUILD_DIR}" \
+  --staging-dir "${TEST_ROOT}/missing-dsym-staging"
+MISSING_DSYM_STATUS=$?
+set -e
+[ "${MISSING_DSYM_STATUS}" -ne 0 ] || {
+  echo "expected staging to reject an XCFramework without a device dSYM" >&2
+  exit 1
+}
 
 cat > "${TEST_ROOT}/raw_repo_server.py" <<'PY'
 import http.server
