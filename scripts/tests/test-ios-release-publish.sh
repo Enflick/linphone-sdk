@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+TEST_ROOT="$(mktemp -d)"
+BUILD_DIR="${TEST_ROOT}/build"
+PACKAGE_DIR="${BUILD_DIR}/linphone-sdk-swift-ios"
+REMOTE_DIR="${TEST_ROOT}/remote"
+BUILD_ONLY_STAGING_DIR="${TEST_ROOT}/build-only-staging"
+PORT_FILE="${TEST_ROOT}/server-port"
+SERVER_LOG="${TEST_ROOT}/server.log"
+
+EXPECTED_TARGETS=(
+  linphone
+  bctoolbox-ios
+  bctoolbox
+  belr
+  belle-sip
+  mediastreamer2
+  msamr
+  mscodec2
+  msopenh264
+  mbedcrypto
+  mbedtls
+  mbedx509
+  ortp
+)
+
+cleanup() {
+  if [ -n "${SERVER_PID:-}" ]; then
+    kill "${SERVER_PID}" >/dev/null 2>&1 || true
+    wait "${SERVER_PID}" >/dev/null 2>&1 || true
+  fi
+  rm -rf "${TEST_ROOT}"
+}
+trap cleanup EXIT
+
+mkdir -p "${PACKAGE_DIR}/XCFrameworks" "${PACKAGE_DIR}/Sources/linphonesw" "${PACKAGE_DIR}/Sources/linphonexcframeworks" "${REMOTE_DIR}"
+
+cat > "${BUILD_DIR}/CMakeCache.txt" <<'EOF'
+LINPHONESDK_VERSION_CACHED:STRING=5.5.12+6308ecb470
+EOF
+
+cat > "${PACKAGE_DIR}/README.md" <<'EOF'
+# Test package
+EOF
+
+cat > "${PACKAGE_DIR}/LICENSE.txt" <<'EOF'
+Test license
+EOF
+
+cat > "${PACKAGE_DIR}/VERSION" <<'EOF'
+5.5.12+6308ecb470
+EOF
+
+cat > "${PACKAGE_DIR}/Sources/linphonesw/LinphoneWrapper.swift" <<'EOF'
+public struct DummyWrapper {}
+EOF
+
+cat > "${PACKAGE_DIR}/Sources/linphonesw/LinphoneSdkInfos.swift" <<'EOF'
+public struct LinphoneSdkInfos {}
+EOF
+
+cat > "${PACKAGE_DIR}/Sources/linphonexcframeworks/Dummy.swift" <<'EOF'
+public struct DummyBinaryTarget {}
+EOF
+
+for target in "${EXPECTED_TARGETS[@]}"; do
+  fixture_dir="${TEST_ROOT}/${target}.xcframework"
+  mkdir -p "${fixture_dir}/ios-arm64" "${fixture_dir}/ios-arm64_x86_64-simulator"
+  printf '%s\n' "${target}-device" > "${fixture_dir}/ios-arm64/${target}"
+  printf '%s\n' "${target}-sim" > "${fixture_dir}/ios-arm64_x86_64-simulator/${target}"
+  (
+    cd "${TEST_ROOT}"
+    zip -rq "${PACKAGE_DIR}/XCFrameworks/${target}.xcframework.zip" "${target}.xcframework"
+  )
+  rm -rf "${fixture_dir}"
+done
+
+extra_target="belcard"
+fixture_dir="${TEST_ROOT}/${extra_target}.xcframework"
+mkdir -p "${fixture_dir}/ios-arm64" "${fixture_dir}/ios-arm64_x86_64-simulator"
+printf '%s\n' "${extra_target}-device" > "${fixture_dir}/ios-arm64/${extra_target}"
+printf '%s\n' "${extra_target}-sim" > "${fixture_dir}/ios-arm64_x86_64-simulator/${extra_target}"
+(
+  cd "${TEST_ROOT}"
+  zip -rq "${PACKAGE_DIR}/XCFrameworks/${extra_target}.xcframework.zip" "${extra_target}.xcframework"
+)
+rm -rf "${fixture_dir}"
+
+cat > "${TEST_ROOT}/raw_repo_server.py" <<'PY'
+import http.server
+import os
+import socketserver
+import sys
+
+root = sys.argv[1]
+port_file = sys.argv[2]
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def _path(self):
+        rel = self.path.lstrip("/")
+        return os.path.join(root, rel)
+
+    def do_HEAD(self):
+        path = self._path()
+        self.send_response(200 if os.path.exists(path) else 404)
+        self.end_headers()
+
+    def do_GET(self):
+        path = self._path()
+        if not os.path.exists(path):
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(os.path.getsize(path)))
+        self.end_headers()
+        with open(path, "rb") as handle:
+            self.wfile.write(handle.read())
+
+    def do_PUT(self):
+        path = self._path()
+        if self.headers.get("If-None-Match") != "*":
+            self.send_response(428)
+            self.end_headers()
+            return
+        if os.path.exists(path):
+            self.send_response(412)
+            self.end_headers()
+            return
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        length = int(self.headers.get("Content-Length", "0"))
+        with open(path, "wb") as handle:
+          handle.write(self.rfile.read(length))
+        self.send_response(201)
+        self.end_headers()
+
+    def log_message(self, fmt, *args):
+        return
+
+with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
+    with open(port_file, "w", encoding="utf-8") as handle:
+        handle.write(str(httpd.server_address[1]))
+    httpd.serve_forever()
+PY
+
+python3 "${TEST_ROOT}/raw_repo_server.py" "${REMOTE_DIR}" "${PORT_FILE}" >"${SERVER_LOG}" 2>&1 &
+SERVER_PID=$!
+
+for _ in $(seq 1 50); do
+  [ -f "${PORT_FILE}" ] && break
+  sleep 0.1
+done
+[ -f "${PORT_FILE}" ] || { echo "server did not start" >&2; exit 1; }
+PORT="$(cat "${PORT_FILE}")"
+BASE_URL="http://127.0.0.1:${PORT}"
+SOURCE_SHORT_SHA="$(git -C "${REPO_ROOT}" rev-parse --short=9 HEAD)"
+RELEASE_VERSION="5.5.12-${SOURCE_SHORT_SHA}"
+
+bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+  --skip-build \
+  --build-only \
+  --build-dir "${BUILD_DIR}" \
+  --staging-dir "${BUILD_ONLY_STAGING_DIR}" \
+  --nexus-base-url "${BASE_URL}" \
+  --nexus-username user \
+  --nexus-password pass
+
+[ -f "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt" ]
+
+bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+  --publish-staged \
+  --dry-run \
+  --staging-dir "${BUILD_ONLY_STAGING_DIR}" \
+  --nexus-base-url "${BASE_URL}" \
+  --nexus-username user \
+  --nexus-password pass
+
+[ "$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')" -eq 0 ]
+
+bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+  --publish-staged \
+  --staging-dir "${BUILD_ONLY_STAGING_DIR}" \
+  --nexus-base-url "${BASE_URL}" \
+  --nexus-username user \
+  --nexus-password pass
+
+[ -f "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt" ]
+[ -f "${BUILD_ONLY_STAGING_DIR}/linphone-sdk-swift-ios-source-${RELEASE_VERSION}.zip" ]
+
+grep -q '^// swift-tools-version:5.7$' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
+grep -q '\.iOS(.v15)' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
+BINARY_TARGET_COUNT="$(grep -c '\.binaryTarget(' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift")"
+[ "${BINARY_TARGET_COUNT}" -eq 13 ]
+grep -q "release_version=${RELEASE_VERSION}" "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
+grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/bctoolbox.xcframework.zip" \
+  "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
+MANIFEST_VALIDATION_DIR="${TEST_ROOT}/manifest-validation"
+cp -R "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios" "${MANIFEST_VALIDATION_DIR}"
+sed -i.bak "s#${BASE_URL}#https://nexus.tools.textnow.io#g" "${MANIFEST_VALIDATION_DIR}/Package.swift"
+rm "${MANIFEST_VALIDATION_DIR}/Package.swift.bak"
+swift package --package-path "${MANIFEST_VALIDATION_DIR}" dump-package >/dev/null
+
+REMOTE_FILE_COUNT="$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')"
+[ "${REMOTE_FILE_COUNT}" -eq 26 ]
+if find "${REMOTE_DIR}" -type f | grep -q 'belcard'; then
+  echo "unexpected extra XCFramework uploaded to remote store" >&2
+  exit 1
+fi
+if find "${REMOTE_DIR}" -type f | grep -Eq 'linphone-sdk.*(\.podspec|\.zip)$'; then
+  echo "unexpected SDK archive or podspec uploaded to remote store" >&2
+  exit 1
+fi
+
+set +e
+bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+  --publish-staged \
+  --dry-run \
+  --staging-dir "${BUILD_ONLY_STAGING_DIR}" \
+  --nexus-base-url "${BASE_URL}" \
+  --nexus-username user \
+  --nexus-password pass
+STATUS=$?
+set -e
+
+[ "${STATUS}" -ne 0 ] || {
+  echo "expected dry-run overwrite preflight to fail once remote files exist" >&2
+  exit 1
+}
+
+echo "ios release publish fixture test passed"

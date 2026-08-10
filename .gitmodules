@@ -1,9 +1,9 @@
 [submodule "bcg729"]
 	path = bcg729
-	url = ../bcg729.git
+	url = https://gitlab.linphone.org/BC/public/bcg729.git
 [submodule "bcmatroska2"]
 	path = bcmatroska2
-	url = ../bcmatroska2.git
+	url = https://gitlab.linphone.org/BC/public/bcmatroska2.git
 [submodule "external/mbedtls"]
 	path = external/mbedtls
 	url = https://gitlab.linphone.org/BC/public/external/mbedtls.git
