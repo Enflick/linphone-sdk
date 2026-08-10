@@ -75,7 +75,18 @@ jobs:
         run: |
           set -euo pipefail
           git submodule sync --recursive
-          git submodule update --init --recursive --jobs 4
+          for attempt in 1 2 3 4 5 6; do
+            if git submodule update --init --recursive --jobs 1; then
+              exit 0
+            fi
+            if [ "${attempt}" -eq 6 ]; then
+              echo "recursive submodule checkout failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            delay=$((attempt * 10))
+            echo "submodule checkout attempt ${attempt} failed; retrying in ${delay}s" >&2
+            sleep "${delay}"
+          done
 
       - name: Select Xcode 26.3
         shell: bash
