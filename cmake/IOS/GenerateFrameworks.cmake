@@ -119,13 +119,15 @@ foreach(_FRAMEWORK IN LISTS _FRAMEWORKS)
 			execute_process(
 				COMMAND "dsymutil" "${_FRAMEWORK_PATH}/${_FRAMEWORK_NAME}" "-o" "${_DSYM_PATH}"
 				RESULT_VARIABLE _DSYMUTIL_RESULT
+				ERROR_VARIABLE _DSYMUTIL_ERROR
 			)
-			if(_DSYMUTIL_RESULT EQUAL 0 AND EXISTS "${_DSYM_PATH}")
+			set(_DSYM_DWARF_FILE "${_DSYM_PATH}/Contents/Resources/DWARF/${_FRAMEWORK_NAME}")
+			if(_DSYMUTIL_RESULT EQUAL 0 AND EXISTS "${_DSYM_DWARF_FILE}")
 				list(APPEND _ALL_ARCH_FRAMEWORKS "-debug-symbols")
 				list(APPEND _ALL_ARCH_FRAMEWORKS "${_DSYM_ABSOLUTE_PATH}")
 				message(STATUS "Generated dSYM for ${_FRAMEWORK_NAME} (${_ARCH})")
 			else()
-				message(WARNING "Failed to generate dSYM for ${_FRAMEWORK_NAME} (${_ARCH}), skipping debug symbols for this slice")
+				message(FATAL_ERROR "Failed to generate required dSYM for ${_FRAMEWORK_NAME} (${_ARCH}): ${_DSYMUTIL_ERROR}")
 			endif()
 		endif()
 	endforeach()
@@ -148,6 +150,11 @@ foreach(_FRAMEWORK IN LISTS _FRAMEWORKS)
 		message (STATUS "Creating XCFramework for ${_FRAMEWORK_NAME} for archs [${_ARCH_STRING}] with debug symbols")
 		execute_process(
 			COMMAND "xcodebuild" "-create-xcframework" "-output" "${CMAKE_INSTALL_PREFIX}/XCFrameworks/${_FRAMEWORK_NAME}.xcframework" ${_ALL_ARCH_FRAMEWORKS}
+			RESULT_VARIABLE _XCODEBUILD_RESULT
+			ERROR_VARIABLE _XCODEBUILD_ERROR
 		)
+		if(NOT _XCODEBUILD_RESULT EQUAL 0)
+			message(FATAL_ERROR "Failed to create XCFramework with required dSYMs for ${_FRAMEWORK_NAME}: ${_XCODEBUILD_ERROR}")
+		endif()
 	endif()
 endforeach()
