@@ -32,6 +32,13 @@ simulator XCFrameworks in Nexus by checksum, and be pinned by exact revision in
 consuming apps. Do not publish new releases from `linphone_patches` or commit
 release binaries to Git.
 
+The `iOS Release Publish` GitHub workflow builds the 13 SwiftPM XCFrameworks on
+the macOS/Xcode release runner, stages a source-only package bundle, and then
+publishes the versioned archives to Nexus. Run it with `dry_run` enabled first;
+a real publication is restricted to `main` and requires the repository to
+receive the organization secrets `NEXUS_CAPI_USER` and
+`NEXUS_CAPI_PASSWORD`. The build job never receives those credentials.
+
 ### Repository layout and dependencies
 
 This SDK already contains the TextNow-modified Linphone components as ordinary
