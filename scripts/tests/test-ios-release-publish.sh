@@ -202,6 +202,8 @@ BASE_URL="http://127.0.0.1:${PORT}"
 SOURCE_SHORT_SHA="$(git -C "${REPO_ROOT}" rev-parse --short=9 HEAD)"
 RELEASE_VERSION="5.5.12-${SOURCE_SHORT_SHA}"
 
+GITHUB_OUTPUT="${TEST_ROOT}/github-output.txt" \
+GITHUB_STEP_SUMMARY="${TEST_ROOT}/github-step-summary.md" \
 bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
   --skip-build \
   --build-only \
@@ -212,6 +214,8 @@ bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
   --nexus-password pass
 
 [ -f "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt" ]
+grep -q '^release_version=' "${TEST_ROOT}/github-output.txt"
+grep -q -- '- Mode: `build-only`' "${TEST_ROOT}/github-step-summary.md"
 
 bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
   --publish-staged \
