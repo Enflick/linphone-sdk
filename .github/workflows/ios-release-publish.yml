@@ -70,23 +70,24 @@ jobs:
             }
           fi
 
-      - name: Sync submodules
+      - name: Restore pinned submodules
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_BUNDLE_TAG: ios-source-dependencies-5.5.12
+          SOURCE_BUNDLE_ASSET: linphone-submodules-5.5.12-088bab728-r2.tar.gz
+          SOURCE_BUNDLE_SHA256: 1bbad0a29699b62ed398d603a4032248853d379c83cf726fbb605b5282453058
         run: |
           set -euo pipefail
-          git submodule sync --recursive
-          for attempt in 1 2 3 4 5 6; do
-            if git submodule update --init --recursive --jobs 1; then
-              exit 0
-            fi
-            if [ "${attempt}" -eq 6 ]; then
-              echo "recursive submodule checkout failed after ${attempt} attempts" >&2
-              exit 1
-            fi
-            delay=$((attempt * 10))
-            echo "submodule checkout attempt ${attempt} failed; retrying in ${delay}s" >&2
-            sleep "${delay}"
-          done
+          bundle="${RUNNER_TEMP}/${SOURCE_BUNDLE_ASSET}"
+          gh release download "${SOURCE_BUNDLE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "${SOURCE_BUNDLE_ASSET}" \
+            --dir "${RUNNER_TEMP}"
+          printf '%s  %s\n' "${SOURCE_BUNDLE_SHA256}" "${bundle}" \
+            | shasum -a 256 --check
+          chmod +x scripts/restore-submodule-source-bundle.sh
+          scripts/restore-submodule-source-bundle.sh "${bundle}"
 
       - name: Select Xcode 26.3
         shell: bash
@@ -100,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install nasm yasm doxygen
+          brew install nasm yasm doxygen meson ninja
           python3 -m venv "${RUNNER_TEMP}/linphone-release-venv"
           "${RUNNER_TEMP}/linphone-release-venv/bin/pip" install pystache six
           echo "${RUNNER_TEMP}/linphone-release-venv/bin" >> "${GITHUB_PATH}"
@@ -108,7 +109,7 @@ jobs:
           import pystache  # noqa: F401
           import six  # noqa: F401
           PY
-          for cmd in cmake curl git nasm yasm doxygen python3 shasum unzip zip xcodebuild; do
+          for cmd in cmake curl git nasm yasm doxygen meson ninja perl python3 shasum unzip zip xcodebuild; do
             command -v "$cmd" >/dev/null 2>&1 || {
               echo "missing command: $cmd" >&2
               exit 1
@@ -129,6 +130,7 @@ jobs:
             --build-dir "${GITHUB_WORKSPACE}/build-ios-release"
             --staging-dir "${GITHUB_WORKSPACE}/out/ios-release"
             --cmake-config "${CMAKE_CONFIG_INPUT}"
+            --cmake-extra-arg "-DPython3_EXECUTABLE=${RUNNER_TEMP}/linphone-release-venv/bin/python"
             --nexus-base-url "https://nexus.tools.textnow.io"
             --nexus-repository "ios-release"
           )

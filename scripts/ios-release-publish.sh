@@ -569,11 +569,11 @@ emit_outputs() {
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
       printf '## iOS release staging\n\n'
-      printf '- Mode: `%s`\n' "${RUN_MODE}"
-      printf '- SDK version: `%s`\n' "${SDK_VERSION}"
-      printf '- Release version: `%s`\n' "${RELEASE_VERSION}"
-      printf '- Release root: `%s`\n' "${RELEASE_ROOT_URL}"
-      printf '- Source bundle: `%s`\n' "${SOURCE_BUNDLE_ZIP}"
+      printf -- '- Mode: `%s`\n' "${RUN_MODE}"
+      printf -- '- SDK version: `%s`\n' "${SDK_VERSION}"
+      printf -- '- Release version: `%s`\n' "${RELEASE_VERSION}"
+      printf -- '- Release root: `%s`\n' "${RELEASE_ROOT_URL}"
+      printf -- '- Source bundle: `%s`\n' "${SOURCE_BUNDLE_ZIP}"
     } >> "${GITHUB_STEP_SUMMARY}"
   fi
 }
