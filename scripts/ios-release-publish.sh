@@ -129,6 +129,8 @@ head_status() {
     curl \
       --silent \
       --show-error \
+      --connect-timeout 10 \
+      --max-time 60 \
       --output /dev/null \
       --write-out '%{http_code}' \
       --head \
@@ -138,6 +140,8 @@ head_status() {
     curl \
       --silent \
       --show-error \
+      --connect-timeout 10 \
+      --max-time 60 \
       --output /dev/null \
       --write-out '%{http_code}' \
       --head \
@@ -145,18 +149,17 @@ head_status() {
   fi
 }
 
-assert_remote_missing() {
-  local rel_path="$1"
-  local url
+assert_release_root_missing() {
   local status
+  local url
 
-  url="$(remote_url_for "$rel_path")"
+  url="${RELEASE_ROOT_URL%/}/"
   status="$(head_status "$url")"
   case "$status" in
     404)
       ;;
     200|204|301|302|307|308)
-      die "refusing to overwrite existing Nexus asset ${url}"
+      die "refusing to publish into existing Nexus release ${url}"
       ;;
     000)
       die "failed to reach Nexus while checking ${url}"
@@ -175,12 +178,16 @@ upload_file() {
   url="$(remote_url_for "$rel_path")"
   if [ -n "$NEXUS_USERNAME" ] || [ -n "$NEXUS_PASSWORD" ]; then
     curl --fail --silent --show-error \
+      --connect-timeout 10 \
+      --max-time 120 \
       --header 'If-None-Match: *' \
       --user "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" \
       --upload-file "$file" \
       "$url"
   else
     curl --fail --silent --show-error \
+      --connect-timeout 10 \
+      --max-time 120 \
       --header 'If-None-Match: *' \
       --upload-file "$file" \
       "$url"
@@ -196,9 +203,11 @@ verify_download() {
   mkdir -p "$(dirname "$downloaded_file")"
   url="$(remote_url_for "$rel_path")"
   if [ -n "$NEXUS_USERNAME" ] || [ -n "$NEXUS_PASSWORD" ]; then
-    curl --fail --silent --show-error --user "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" --output "$downloaded_file" "$url"
+    curl --fail --silent --show-error --connect-timeout 10 --max-time 120 \
+      --user "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" --output "$downloaded_file" "$url"
   else
-    curl --fail --silent --show-error --output "$downloaded_file" "$url"
+    curl --fail --silent --show-error --connect-timeout 10 --max-time 120 \
+      --output "$downloaded_file" "$url"
   fi
 
   if [[ "$rel_path" == *.sha256 ]]; then
@@ -526,21 +535,14 @@ load_staged_context() {
   done
 }
 
-preflight_uploads() {
-  local rel_path=""
+require_publish_credentials() {
   [ -n "$NEXUS_USERNAME" ] || die "Nexus username is required for ${RUN_MODE}"
   [ -n "$NEXUS_PASSWORD" ] || die "Nexus password is required for ${RUN_MODE}"
-
-  for rel_path in "${UPLOAD_FILES[@]}"; do
-    assert_remote_missing "$rel_path"
-  done
 }
 
 publish_uploads() {
   local rel_path=""
   for rel_path in "${UPLOAD_FILES[@]}"; do
-    # Narrow the preflight/upload race and ask Nexus to reject an existing asset.
-    assert_remote_missing "$rel_path"
     upload_file "$rel_path"
   done
 }
@@ -706,8 +708,9 @@ main() {
     return
   fi
 
-  preflight_uploads
+  require_publish_credentials
   if $DRY_RUN; then
+    assert_release_root_missing
     log "dry-run complete; Nexus paths are empty under ${RELEASE_ROOT_URL}"
     return
   fi
