@@ -153,8 +153,7 @@ jobs:
     name: Publish staged release bundle
     needs: build
     if: ${{ inputs.build_only != true && github.ref == 'refs/heads/main' }}
-    # Nexus publication must run from the TextNow network. Public GitHub-hosted
-    # runners can reach the endpoint but authentication is not reliable there.
+    # Match the established runner used by the iOS release build.
     runs-on: macos-26
     timeout-minutes: 60
     concurrency:

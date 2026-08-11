@@ -11,6 +11,7 @@ REMOTE_DIR="${TEST_ROOT}/remote"
 BUILD_ONLY_STAGING_DIR="${TEST_ROOT}/build-only-staging"
 PORT_FILE="${TEST_ROOT}/server-port"
 SERVER_LOG="${TEST_ROOT}/server.log"
+REQUEST_LOG="${TEST_ROOT}/requests.log"
 
 EXPECTED_TARGETS=(
   linphone
@@ -140,6 +141,7 @@ import sys
 
 root = sys.argv[1]
 port_file = sys.argv[2]
+request_log = sys.argv[3]
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def _path(self):
@@ -147,6 +149,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return os.path.join(root, rel)
 
     def do_HEAD(self):
+        with open(request_log, "a", encoding="utf-8") as handle:
+            handle.write(f"HEAD {self.path}\n")
         path = self._path()
         self.send_response(200 if os.path.exists(path) else 404)
         self.end_headers()
@@ -189,7 +193,7 @@ with socketserver.TCPServer(("127.0.0.1", 0), Handler) as httpd:
     httpd.serve_forever()
 PY
 
-python3 "${TEST_ROOT}/raw_repo_server.py" "${REMOTE_DIR}" "${PORT_FILE}" >"${SERVER_LOG}" 2>&1 &
+python3 "${TEST_ROOT}/raw_repo_server.py" "${REMOTE_DIR}" "${PORT_FILE}" "${REQUEST_LOG}" >"${SERVER_LOG}" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 50); do
@@ -226,6 +230,7 @@ bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
   --nexus-password pass
 
 [ "$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')" -eq 0 ]
+[ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 1 ]
 
 bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
   --publish-staged \
@@ -236,6 +241,7 @@ bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
 
 [ -f "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt" ]
 [ -f "${BUILD_ONLY_STAGING_DIR}/linphone-sdk-swift-ios-source-${RELEASE_VERSION}.zip" ]
+[ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 1 ]
 
 grep -q '^// swift-tools-version:5.7$' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 grep -q '\.iOS(.v15)' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
@@ -252,6 +258,7 @@ swift package --package-path "${MANIFEST_VALIDATION_DIR}" dump-package >/dev/nul
 
 REMOTE_FILE_COUNT="$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')"
 [ "${REMOTE_FILE_COUNT}" -eq 26 ]
+[ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 1 ]
 if find "${REMOTE_DIR}" -type f | grep -q 'belcard'; then
   echo "unexpected extra XCFramework uploaded to remote store" >&2
   exit 1
@@ -260,6 +267,23 @@ if find "${REMOTE_DIR}" -type f | grep -Eq 'linphone-sdk.*(\.podspec|\.zip)$'; t
   echo "unexpected SDK archive or podspec uploaded to remote store" >&2
   exit 1
 fi
+
+set +e
+bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+  --publish-staged \
+  --staging-dir "${BUILD_ONLY_STAGING_DIR}" \
+  --nexus-base-url "${BASE_URL}" \
+  --nexus-username user \
+  --nexus-password pass
+CONDITIONAL_PUT_STATUS=$?
+set -e
+
+[ "${CONDITIONAL_PUT_STATUS}" -ne 0 ] || {
+  echo "expected conditional PUT to reject an existing remote file" >&2
+  exit 1
+}
+[ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 1 ]
+[ "$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')" -eq 26 ]
 
 set +e
 bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
@@ -276,5 +300,6 @@ set -e
   echo "expected dry-run overwrite preflight to fail once remote files exist" >&2
   exit 1
 }
+[ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 2 ]
 
 echo "ios release publish fixture test passed"
