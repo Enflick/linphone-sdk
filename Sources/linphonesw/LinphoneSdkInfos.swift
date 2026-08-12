@@ -1,7 +1,7 @@
 import linphone
 
 public struct LinphoneSdkInfos {
-	public static let version = "5.5.13-pre.24+bb3104999f"
+	public static let version = "5.5.13-pre.28+a69177bc6d"
 	public static let branch = "remotes/origin/main"
 }
 
