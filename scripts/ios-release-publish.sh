@@ -213,15 +213,32 @@ write_sidecar() {
   printf '%s  %s\n' "$(sha256_file "$file")" "$(basename "$file")" > "${file}.sha256"
 }
 
+is_test_only_target_name() {
+  local candidate=""
+  candidate="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$candidate" in
+    *tester)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 load_target_names_from_generated_package() {
   local package_file="${SWIFT_PACKAGE_DIR}/Package.swift"
   local target=""
+  local raw_target_count=0
   local zip_count=""
+  local selected_zip_count=0
 
   [ -f "${package_file}" ] || die "missing generated Swift package manifest ${package_file}"
   TARGET_NAMES=()
   while IFS= read -r target; do
     [ -n "${target}" ] || continue
+    raw_target_count=$((raw_target_count + 1))
+    if is_test_only_target_name "${target}"; then
+      continue
+    fi
     TARGET_NAMES+=("${target}")
   done < <(python3 - "${package_file}" <<'PY'
 import re
@@ -233,10 +250,15 @@ for name in re.findall(r'\.binaryTarget\(\s*name:\s*"([^"]+)"', content, re.S):
 PY
 )
 
-  [ "${#TARGET_NAMES[@]}" -gt 0 ] || die "no binary targets found in ${package_file}"
+  [ "${raw_target_count}" -gt 0 ] || die "no binary targets found in ${package_file}"
+  [ "${#TARGET_NAMES[@]}" -gt 0 ] || die "no production binary targets remain in ${package_file} after excluding test-only frameworks"
   zip_count="$(find "${XCFRAMEWORK_DIR}" -maxdepth 1 -type f -name '*.xcframework.zip' | wc -l | tr -d ' ')"
-  [ "${zip_count}" = "${#TARGET_NAMES[@]}" ] \
-    || die "generated Swift package declares ${#TARGET_NAMES[@]} targets but ${zip_count} XCFramework ZIPs were built"
+  for target in "${TARGET_NAMES[@]}"; do
+    [ -f "${XCFRAMEWORK_DIR}/${target}.xcframework.zip" ] || die "missing expected artifact ${XCFRAMEWORK_DIR}/${target}.xcframework.zip"
+    selected_zip_count=$((selected_zip_count + 1))
+  done
+  [ "${zip_count}" -ge "${selected_zip_count}" ] \
+    || die "generated Swift package selects ${selected_zip_count} production targets but only ${zip_count} XCFramework ZIPs were built"
 }
 
 target_exists() {
