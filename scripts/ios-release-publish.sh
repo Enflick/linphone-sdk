@@ -17,6 +17,7 @@ NEXUS_BASE_URL="${NEXUS_BASE_URL:-https://nexus.tools.textnow.io}"
 NEXUS_REPOSITORY="${NEXUS_REPOSITORY:-ios-release}"
 NEXUS_USERNAME="${NEXUS_USERNAME:-${NEXUS_CAPI_USER:-}}"
 NEXUS_PASSWORD="${NEXUS_PASSWORD:-${NEXUS_CAPI_PASSWORD:-}}"
+OTOOL_BIN="${OTOOL_BIN:-otool}"
 
 DRY_RUN=false
 BUILD_ONLY=false
@@ -28,6 +29,8 @@ SWIFT_PACKAGE_NAME="linphone-sdk-swift-ios"
 declare -a EXTRA_CMAKE_ARGS=()
 declare -a UPLOAD_FILES=()
 declare -a TARGET_NAMES=()
+declare -a RUNTIME_DEPENDENCY_EDGES=()
+RUNTIME_DEPENDENCY_COUNT=0
 
 log() {
   printf '[ios-release] %s\n' "$*" >&2
@@ -236,6 +239,86 @@ PY
     || die "generated Swift package declares ${#TARGET_NAMES[@]} targets but ${zip_count} XCFramework ZIPs were built"
 }
 
+target_exists() {
+  local candidate="$1"
+  local target=""
+  for target in "${TARGET_NAMES[@]}"; do
+    [ "$target" = "$candidate" ] && return 0
+  done
+  return 1
+}
+
+find_raw_xcframework_dir() {
+  local matches=()
+
+  if [ -d "${BUILD_DIR}/linphone-sdk/apple-darwin/XCFrameworks" ]; then
+    printf '%s\n' "${BUILD_DIR}/linphone-sdk/apple-darwin/XCFrameworks"
+    return
+  fi
+  if [ -d "${BUILD_DIR}/linphone-sdk-novideo/apple-darwin/XCFrameworks" ]; then
+    printf '%s\n' "${BUILD_DIR}/linphone-sdk-novideo/apple-darwin/XCFrameworks"
+    return
+  fi
+
+  while IFS= read -r match; do
+    [ -n "$match" ] || continue
+    matches+=("$match")
+  done < <(find "${BUILD_DIR}" -type d -path '*/apple-darwin/XCFrameworks' | sort)
+
+  [ "${#matches[@]}" -gt 0 ] || die "could not find raw XCFramework directory under ${BUILD_DIR}"
+  [ "${#matches[@]}" -eq 1 ] || die "found multiple raw XCFramework directories under ${BUILD_DIR}: ${matches[*]}"
+  printf '%s\n' "${matches[0]}"
+}
+
+collect_runtime_dependencies_for_binary() {
+  local binary_path="$1"
+  "${OTOOL_BIN}" -L "${binary_path}" | python3 -c '
+import re
+import sys
+
+pattern = re.compile(r"^\s+@rpath/([^/\s]+)\.framework/\1(?:\s|$)")
+for line in sys.stdin:
+    match = pattern.match(line)
+    if match:
+        print(match.group(1))
+'
+}
+
+verify_runtime_dependency_closure() {
+  local raw_xcframework_dir=""
+  local target=""
+  local framework_dir=""
+  local framework_name=""
+  local slice=""
+  local binary_path=""
+  local dependency=""
+
+  if ! command -v "${OTOOL_BIN}" >/dev/null 2>&1 && [ ! -x "${OTOOL_BIN}" ]; then
+    die "required otool command '${OTOOL_BIN}' not found for runtime dependency validation"
+  fi
+
+  raw_xcframework_dir="$(find_raw_xcframework_dir)"
+  RUNTIME_DEPENDENCY_EDGES=()
+  RUNTIME_DEPENDENCY_COUNT=0
+
+  for target in "${TARGET_NAMES[@]}"; do
+    framework_dir="${raw_xcframework_dir}/${target}.xcframework"
+    framework_name="${target}"
+    [ -d "${framework_dir}" ] || die "missing raw XCFramework directory ${framework_dir}"
+    for slice in ios-arm64 ios-arm64_x86_64-simulator; do
+      binary_path="${framework_dir}/${slice}/${framework_name}.framework/${framework_name}"
+      [ -f "${binary_path}" ] || die "missing framework binary ${binary_path}"
+      while IFS= read -r dependency; do
+        [ -n "${dependency}" ] || continue
+        target_exists "${dependency}" \
+          || die "runtime dependency closure failure: ${target} (${slice}) references ${dependency}, which is not packaged"
+        RUNTIME_DEPENDENCY_EDGES+=("${target}|${slice}|${dependency}")
+        RUNTIME_DEPENDENCY_COUNT=$((RUNTIME_DEPENDENCY_COUNT + 1))
+      done < <(collect_runtime_dependencies_for_binary "${binary_path}")
+    done
+  done
+}
+
 copy_nexus_file() {
   local src="$1"
   local name="$2"
@@ -344,6 +427,7 @@ verify_generated_targets() {
   [ -d "$XCFRAMEWORK_DIR" ] || die "missing XCFramework directory ${XCFRAMEWORK_DIR}"
   [ "${#zip_files[@]}" -gt 0 ] || die "expected at least one XCFramework ZIP in ${XCFRAMEWORK_DIR}"
   load_target_names_from_generated_package
+  verify_runtime_dependency_closure
 
   for target in "${TARGET_NAMES[@]}"; do
     zip_file="${XCFRAMEWORK_DIR}/${target}.xcframework.zip"
@@ -439,6 +523,7 @@ manifest_value() {
 
 write_manifest() {
   local manifest_file="${STAGING_DIR}/release-manifest.txt"
+  local runtime_edge=""
   local target=""
   local zip_name=""
 
@@ -451,6 +536,14 @@ write_manifest() {
     printf 'release_root_url=%s\n' "${RELEASE_ROOT_URL}"
     printf 'mode=%s\n' "${RUN_MODE}"
     printf 'target_count=%s\n' "${#TARGET_NAMES[@]}"
+    printf 'runtime_dependency_count=%s\n' "${RUNTIME_DEPENDENCY_COUNT}"
+    printf '\n'
+    printf '# runtime dependency closure\n'
+    if [ "${RUNTIME_DEPENDENCY_COUNT}" -gt 0 ]; then
+      for runtime_edge in "${RUNTIME_DEPENDENCY_EDGES[@]}"; do
+        printf 'runtime_dependency=%s\n' "${runtime_edge}"
+      done
+    fi
     printf '\n'
     printf '# nexus payload\n'
     for target in "${TARGET_NAMES[@]}"; do
@@ -488,6 +581,11 @@ load_staged_context() {
   local actual_zip_count=""
   local actual_sidecar_count=""
   local manifest_target_count=""
+  local manifest_runtime_dependency_count=""
+  local runtime_edge=""
+  local runtime_source=""
+  local runtime_slice=""
+  local runtime_dependency=""
   local target=""
   local zip_name=""
   local source_sha_input=""
@@ -515,6 +613,8 @@ load_staged_context() {
   [ -f "${STAGING_DIR}/${SOURCE_BUNDLE_ZIP}" ] || die "missing staged source bundle ${SOURCE_BUNDLE_ZIP}"
   manifest_target_count="$(manifest_value target_count "${MANIFEST_FILE}")"
   [ -n "${manifest_target_count}" ] || die "staged manifest missing target_count"
+  manifest_runtime_dependency_count="$(manifest_value runtime_dependency_count "${MANIFEST_FILE}")"
+  [ -n "${manifest_runtime_dependency_count}" ] || die "staged manifest missing runtime_dependency_count"
 
   TARGET_NAMES=()
   while IFS= read -r target; do
@@ -523,6 +623,30 @@ load_staged_context() {
   done < <(sed -n 's/^target=//p' "${MANIFEST_FILE}")
   [ "${#TARGET_NAMES[@]}" = "${manifest_target_count}" ] \
     || die "staged manifest target_count ${manifest_target_count} does not match ${#TARGET_NAMES[@]} targets"
+
+  RUNTIME_DEPENDENCY_EDGES=()
+  RUNTIME_DEPENDENCY_COUNT=0
+  while IFS= read -r runtime_edge; do
+    [ -n "${runtime_edge}" ] || continue
+    RUNTIME_DEPENDENCY_EDGES+=("${runtime_edge}")
+    RUNTIME_DEPENDENCY_COUNT=$((RUNTIME_DEPENDENCY_COUNT + 1))
+  done < <(sed -n 's/^runtime_dependency=//p' "${MANIFEST_FILE}")
+  [ "${RUNTIME_DEPENDENCY_COUNT}" = "${manifest_runtime_dependency_count}" ] \
+    || die "staged manifest runtime_dependency_count ${manifest_runtime_dependency_count} does not match ${RUNTIME_DEPENDENCY_COUNT} runtime dependencies"
+  if [ "${RUNTIME_DEPENDENCY_COUNT}" -gt 0 ]; then
+    for runtime_edge in "${RUNTIME_DEPENDENCY_EDGES[@]}"; do
+      runtime_source="${runtime_edge%%|*}"
+      runtime_slice="${runtime_edge#*|}"
+      runtime_slice="${runtime_slice%%|*}"
+      runtime_dependency="${runtime_edge##*|}"
+      [ "${runtime_source}" != "${runtime_edge}" ] || die "malformed runtime dependency entry ${runtime_edge}"
+      [ -n "${runtime_slice}" ] || die "malformed runtime dependency entry ${runtime_edge}"
+      [ "${runtime_slice}" = "ios-arm64" ] || [ "${runtime_slice}" = "ios-arm64_x86_64-simulator" ] \
+        || die "unexpected runtime dependency slice ${runtime_slice}"
+      target_exists "${runtime_source}" || die "runtime dependency source ${runtime_source} is not packaged"
+      target_exists "${runtime_dependency}" || die "runtime dependency target ${runtime_dependency} is not packaged"
+    done
+  fi
 
   actual_zip_count="$(find "${NEXUS_STAGE_DIR}" -maxdepth 1 -type f -name '*.xcframework.zip' | wc -l | tr -d ' ')"
   actual_sidecar_count="$(find "${NEXUS_STAGE_DIR}" -maxdepth 1 -type f -name '*.xcframework.zip.sha256' | wc -l | tr -d ' ')"
