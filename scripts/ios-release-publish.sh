@@ -116,6 +116,10 @@ head_status() {
   local url="$1"
   if [ -n "$NEXUS_USERNAME" ] || [ -n "$NEXUS_PASSWORD" ]; then
     curl \
+      --http1.1 \
+      --retry 5 \
+      --retry-delay 10 \
+      --retry-max-time 300 \
       --silent \
       --show-error \
       --connect-timeout 10 \
@@ -127,6 +131,10 @@ head_status() {
       "$url" || true
   else
     curl \
+      --http1.1 \
+      --retry 5 \
+      --retry-delay 10 \
+      --retry-max-time 300 \
       --silent \
       --show-error \
       --connect-timeout 10 \
@@ -165,18 +173,27 @@ upload_file() {
   local url
 
   url="$(remote_url_for "$rel_path")"
+  log "uploading ${rel_path}"
   if [ -n "$NEXUS_USERNAME" ] || [ -n "$NEXUS_PASSWORD" ]; then
     curl --fail --silent --show-error \
-      --connect-timeout 10 \
-      --max-time 120 \
+      --http1.1 \
+      --connect-timeout 15 \
+      --max-time 300 \
+      --retry 5 \
+      --retry-delay 10 \
+      --retry-max-time 900 \
       --header 'If-None-Match: *' \
       --user "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" \
       --upload-file "$file" \
       "$url"
   else
     curl --fail --silent --show-error \
-      --connect-timeout 10 \
-      --max-time 120 \
+      --http1.1 \
+      --connect-timeout 15 \
+      --max-time 300 \
+      --retry 5 \
+      --retry-delay 10 \
+      --retry-max-time 900 \
       --header 'If-None-Match: *' \
       --upload-file "$file" \
       "$url"
@@ -191,11 +208,16 @@ verify_download() {
 
   mkdir -p "$(dirname "$downloaded_file")"
   url="$(remote_url_for "$rel_path")"
+  log "verifying ${rel_path}"
   if [ -n "$NEXUS_USERNAME" ] || [ -n "$NEXUS_PASSWORD" ]; then
-    curl --fail --silent --show-error --connect-timeout 10 --max-time 120 \
+    curl --fail --silent --show-error --http1.1 \
+      --connect-timeout 15 --max-time 300 \
+      --retry 5 --retry-delay 10 --retry-max-time 900 \
       --user "${NEXUS_USERNAME}:${NEXUS_PASSWORD}" --output "$downloaded_file" "$url"
   else
-    curl --fail --silent --show-error --connect-timeout 10 --max-time 120 \
+    curl --fail --silent --show-error --http1.1 \
+      --connect-timeout 15 --max-time 300 \
+      --retry 5 --retry-delay 10 --retry-max-time 900 \
       --output "$downloaded_file" "$url"
   fi
 
