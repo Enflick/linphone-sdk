@@ -23,11 +23,32 @@ EXPECTED_TARGETS=(
   belr
   lime
   linphone
+  mbedcrypto
+  mbedtls
+  mbedx509
   mediastreamer2
   msamr
   mscodec2
   msopenh264
-  mswebrtc
+  ortp
+)
+GENERATED_TARGETS=(
+  bctoolbox-ios
+  bctoolbox-tester
+  bctoolbox
+  belcard
+  belle-sip
+  belr
+  lime
+  linphone
+  linphonetester
+  mbedcrypto
+  mbedtls
+  mbedx509
+  mediastreamer2
+  msamr
+  mscodec2
+  msopenh264
   ortp
 )
 
@@ -87,7 +108,7 @@ printf '\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current versi
 EOF
 chmod +x "${OTOOL_STUB}"
 
-for target in "${EXPECTED_TARGETS[@]}"; do
+for target in "${GENERATED_TARGETS[@]}"; do
   fixture_dir="${TEST_ROOT}/${target}.xcframework"
   raw_fixture_dir="${RAW_XCFRAMEWORK_DIR}/${target}.xcframework"
   mkdir -p \
@@ -130,6 +151,30 @@ EOF
 cat > "${RAW_XCFRAMEWORK_DIR}/lime.xcframework/ios-arm64_x86_64-simulator/lime.framework/lime.deps" <<'EOF'
 @rpath/bctoolbox.framework/bctoolbox
 EOF
+cat > "${RAW_XCFRAMEWORK_DIR}/bctoolbox.xcframework/ios-arm64/bctoolbox.framework/bctoolbox.deps" <<'EOF'
+@rpath/mbedtls.framework/mbedtls
+@rpath/mbedx509.framework/mbedx509
+@rpath/mbedcrypto.framework/mbedcrypto
+EOF
+cat > "${RAW_XCFRAMEWORK_DIR}/bctoolbox.xcframework/ios-arm64_x86_64-simulator/bctoolbox.framework/bctoolbox.deps" <<'EOF'
+@rpath/mbedtls.framework/mbedtls
+@rpath/mbedx509.framework/mbedx509
+@rpath/mbedcrypto.framework/mbedcrypto
+EOF
+cat > "${RAW_XCFRAMEWORK_DIR}/mbedtls.xcframework/ios-arm64/mbedtls.framework/mbedtls.deps" <<'EOF'
+@rpath/mbedx509.framework/mbedx509
+@rpath/mbedcrypto.framework/mbedcrypto
+EOF
+cat > "${RAW_XCFRAMEWORK_DIR}/mbedtls.xcframework/ios-arm64_x86_64-simulator/mbedtls.framework/mbedtls.deps" <<'EOF'
+@rpath/mbedx509.framework/mbedx509
+@rpath/mbedcrypto.framework/mbedcrypto
+EOF
+cat > "${RAW_XCFRAMEWORK_DIR}/mbedx509.xcframework/ios-arm64/mbedx509.framework/mbedx509.deps" <<'EOF'
+@rpath/mbedcrypto.framework/mbedcrypto
+EOF
+cat > "${RAW_XCFRAMEWORK_DIR}/mbedx509.xcframework/ios-arm64_x86_64-simulator/mbedx509.framework/mbedx509.deps" <<'EOF'
+@rpath/mbedcrypto.framework/mbedcrypto
+EOF
 
 {
   cat <<'EOF'
@@ -149,7 +194,7 @@ let package = Package(
     ],
     targets: [
 EOF
-  for target in "${EXPECTED_TARGETS[@]}"; do
+  for target in "${GENERATED_TARGETS[@]}"; do
     cat <<EOF
         .binaryTarget(
             name: "${target}",
@@ -162,7 +207,7 @@ EOF
   printf '            name: "linphonexcframeworks",\n'
   printf '            dependencies: ['
   first=true
-  for target in "${EXPECTED_TARGETS[@]}"; do
+  for target in "${GENERATED_TARGETS[@]}"; do
     if $first; then
       first=false
     else
@@ -266,6 +311,31 @@ MISSING_RUNTIME_STATUS=$?
 set -e
 [ "${MISSING_RUNTIME_STATUS}" -ne 0 ] || {
   echo "expected staging to reject a missing runtime-linked XCFramework target" >&2
+  exit 1
+}
+
+TEST_ONLY_RUNTIME_BUILD_DIR="${TEST_ROOT}/test-only-runtime-build"
+cp -R "${BUILD_DIR}" "${TEST_ONLY_RUNTIME_BUILD_DIR}"
+cat > "${TEST_ONLY_RUNTIME_BUILD_DIR}/linphone-sdk/apple-darwin/XCFrameworks/linphone.xcframework/ios-arm64/linphone.framework/linphone.deps" <<'EOF'
+@rpath/lime.framework/lime
+@rpath/belle-sip.framework/belle-sip
+@rpath/linphonetester.framework/linphonetester
+EOF
+cat > "${TEST_ONLY_RUNTIME_BUILD_DIR}/linphone-sdk/apple-darwin/XCFrameworks/linphone.xcframework/ios-arm64_x86_64-simulator/linphone.framework/linphone.deps" <<'EOF'
+@rpath/lime.framework/lime
+@rpath/belle-sip.framework/belle-sip
+@rpath/linphonetester.framework/linphonetester
+EOF
+set +e
+OTOOL_BIN="${OTOOL_STUB}" bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+  --skip-build \
+  --build-only \
+  --build-dir "${TEST_ONLY_RUNTIME_BUILD_DIR}" \
+  --staging-dir "${TEST_ROOT}/test-only-runtime-staging"
+TEST_ONLY_RUNTIME_STATUS=$?
+set -e
+[ "${TEST_ONLY_RUNTIME_STATUS}" -ne 0 ] || {
+  echo "expected staging to reject a production framework that depends on a tester XCFramework" >&2
   exit 1
 }
 
@@ -382,14 +452,35 @@ bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
 grep -q '^// swift-tools-version:5.7$' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 grep -q '\.iOS(.v15)' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 BINARY_TARGET_COUNT="$(grep -c '\.binaryTarget(' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift")"
-[ "${BINARY_TARGET_COUNT}" -eq 13 ]
+[ "${BINARY_TARGET_COUNT}" -eq 15 ]
 grep -q "release_version=${RELEASE_VERSION}" "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
+grep -q '^target_count=15$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/bctoolbox.xcframework.zip" \
   "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/lime.xcframework.zip" \
   "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
+grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/mbedtls.xcframework.zip" \
+  "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 grep -q '^target=lime$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
+grep -q '^target=mbedtls$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 grep -q '^runtime_dependency=linphone|ios-arm64|lime$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
+grep -q '^runtime_dependency=bctoolbox|ios-arm64|mbedtls$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
+if grep -q 'bctoolbox-tester' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"; then
+  echo "expected source package to exclude bctoolbox-tester" >&2
+  exit 1
+fi
+if grep -q 'linphonetester' "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"; then
+  echo "expected source package to exclude linphonetester" >&2
+  exit 1
+fi
+if grep -q '^target=bctoolbox-tester$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"; then
+  echo "expected release manifest to exclude bctoolbox-tester" >&2
+  exit 1
+fi
+if grep -q '^target=linphonetester$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"; then
+  echo "expected release manifest to exclude linphonetester" >&2
+  exit 1
+fi
 MANIFEST_VALIDATION_DIR="${TEST_ROOT}/manifest-validation"
 cp -R "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios" "${MANIFEST_VALIDATION_DIR}"
 sed -i.bak "s#${BASE_URL}#https://nexus.tools.textnow.io#g" "${MANIFEST_VALIDATION_DIR}/Package.swift"
@@ -397,9 +488,14 @@ rm "${MANIFEST_VALIDATION_DIR}/Package.swift.bak"
 swift package --package-path "${MANIFEST_VALIDATION_DIR}" dump-package >/dev/null
 
 REMOTE_FILE_COUNT="$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')"
-[ "${REMOTE_FILE_COUNT}" -eq 26 ]
+[ "${REMOTE_FILE_COUNT}" -eq 30 ]
 [ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 1 ]
 find "${REMOTE_DIR}" -type f | grep -q 'lime\.xcframework\.zip'
+find "${REMOTE_DIR}" -type f | grep -q 'mbedtls\.xcframework\.zip'
+if find "${REMOTE_DIR}" -type f | grep -Eq '(bctoolbox-tester|linphonetester)\.xcframework\.zip'; then
+  echo "expected published payload to exclude tester XCFramework zips" >&2
+  exit 1
+fi
 if find "${REMOTE_DIR}" -type f | grep -Eq 'linphone-sdk.*(\.podspec|\.zip)$'; then
   echo "unexpected SDK archive or podspec uploaded to remote store" >&2
   exit 1
@@ -420,7 +516,7 @@ set -e
   exit 1
 }
 [ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 1 ]
-[ "$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')" -eq 26 ]
+[ "$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')" -eq 30 ]
 
 set +e
 bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
