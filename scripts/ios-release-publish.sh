@@ -24,24 +24,10 @@ SKIP_BUILD=false
 PUBLISH_STAGED=false
 
 SWIFT_PACKAGE_NAME="linphone-sdk-swift-ios"
-EXPECTED_TARGETS=(
-  linphone
-  bctoolbox-ios
-  bctoolbox
-  belr
-  belle-sip
-  mediastreamer2
-  msamr
-  mscodec2
-  msopenh264
-  mbedcrypto
-  mbedtls
-  mbedx509
-  ortp
-)
 
 declare -a EXTRA_CMAKE_ARGS=()
 declare -a UPLOAD_FILES=()
+declare -a TARGET_NAMES=()
 
 log() {
   printf '[ios-release] %s\n' "$*" >&2
@@ -224,6 +210,32 @@ write_sidecar() {
   printf '%s  %s\n' "$(sha256_file "$file")" "$(basename "$file")" > "${file}.sha256"
 }
 
+load_target_names_from_generated_package() {
+  local package_file="${SWIFT_PACKAGE_DIR}/Package.swift"
+  local target=""
+  local zip_count=""
+
+  [ -f "${package_file}" ] || die "missing generated Swift package manifest ${package_file}"
+  TARGET_NAMES=()
+  while IFS= read -r target; do
+    [ -n "${target}" ] || continue
+    TARGET_NAMES+=("${target}")
+  done < <(python3 - "${package_file}" <<'PY'
+import re
+import sys
+
+content = open(sys.argv[1], "r", encoding="utf-8").read()
+for name in re.findall(r'\.binaryTarget\(\s*name:\s*"([^"]+)"', content, re.S):
+    print(name)
+PY
+)
+
+  [ "${#TARGET_NAMES[@]}" -gt 0 ] || die "no binary targets found in ${package_file}"
+  zip_count="$(find "${XCFRAMEWORK_DIR}" -maxdepth 1 -type f -name '*.xcframework.zip' | wc -l | tr -d ' ')"
+  [ "${zip_count}" = "${#TARGET_NAMES[@]}" ] \
+    || die "generated Swift package declares ${#TARGET_NAMES[@]} targets but ${zip_count} XCFramework ZIPs were built"
+}
+
 copy_nexus_file() {
   local src="$1"
   local name="$2"
@@ -323,17 +335,17 @@ PY
     || die "${zip_file} does not declare dSYMs for both XCFramework slices"
 }
 
-verify_expected_targets() {
+verify_generated_targets() {
   local zip_files=("${XCFRAMEWORK_DIR}"/*.zip)
   local target=""
   local zip_file=""
 
   [ -d "$SWIFT_PACKAGE_DIR" ] || die "missing SwiftPM output ${SWIFT_PACKAGE_DIR}"
   [ -d "$XCFRAMEWORK_DIR" ] || die "missing XCFramework directory ${XCFRAMEWORK_DIR}"
-  [ "${#zip_files[@]}" -ge "${#EXPECTED_TARGETS[@]}" ] \
-    || die "expected at least ${#EXPECTED_TARGETS[@]} XCFramework ZIPs, found ${#zip_files[@]}"
+  [ "${#zip_files[@]}" -gt 0 ] || die "expected at least one XCFramework ZIP in ${XCFRAMEWORK_DIR}"
+  load_target_names_from_generated_package
 
-  for target in "${EXPECTED_TARGETS[@]}"; do
+  for target in "${TARGET_NAMES[@]}"; do
     zip_file="${XCFRAMEWORK_DIR}/${target}.xcframework.zip"
     [ -f "$zip_file" ] || die "missing expected artifact ${zip_file}"
     verify_xcframework_zip "$zip_file"
@@ -364,7 +376,7 @@ let package = Package(
     ],
     targets: [
 EOF
-    for target in "${EXPECTED_TARGETS[@]}"; do
+    for target in "${TARGET_NAMES[@]}"; do
       zip_name="${target}.xcframework.zip"
       checksum="$(sha256_file "${XCFRAMEWORK_DIR}/${zip_name}")"
       cat <<EOF
@@ -379,7 +391,7 @@ EOF
     printf '            name: "linphonesw",\n'
     printf '            dependencies: ['
     local first=true
-    for target in "${EXPECTED_TARGETS[@]}"; do
+    for target in "${TARGET_NAMES[@]}"; do
       if $first; then
         first=false
       else
@@ -438,10 +450,12 @@ write_manifest() {
     printf 'release_version=%s\n' "${RELEASE_VERSION}"
     printf 'release_root_url=%s\n' "${RELEASE_ROOT_URL}"
     printf 'mode=%s\n' "${RUN_MODE}"
+    printf 'target_count=%s\n' "${#TARGET_NAMES[@]}"
     printf '\n'
     printf '# nexus payload\n'
-    for target in "${EXPECTED_TARGETS[@]}"; do
+    for target in "${TARGET_NAMES[@]}"; do
       zip_name="${target}.xcframework.zip"
+      printf 'target=%s\n' "${target}"
       printf '%s %s\n' "${zip_name}" "$(sha256_file "${NEXUS_STAGE_DIR}/${zip_name}")"
     done
   } > "$manifest_file"
@@ -460,7 +474,7 @@ stage_outputs() {
   mkdir -p "$NEXUS_STAGE_DIR" "$VERIFY_DIR" "$SOURCE_BUNDLE_DIR"
   UPLOAD_FILES=()
 
-  for target in "${EXPECTED_TARGETS[@]}"; do
+  for target in "${TARGET_NAMES[@]}"; do
     zip_name="${target}.xcframework.zip"
     copy_nexus_file "${XCFRAMEWORK_DIR}/${zip_name}" "$zip_name"
   done
@@ -473,6 +487,7 @@ load_staged_context() {
   local expected_release_root=""
   local actual_zip_count=""
   local actual_sidecar_count=""
+  local manifest_target_count=""
   local target=""
   local zip_name=""
   local source_sha_input=""
@@ -498,15 +513,25 @@ load_staged_context() {
   [ -n "${RELEASE_VERSION}" ] || die "staged manifest missing release_version"
   [ -n "${RELEASE_ROOT_URL}" ] || die "staged manifest missing release_root_url"
   [ -f "${STAGING_DIR}/${SOURCE_BUNDLE_ZIP}" ] || die "missing staged source bundle ${SOURCE_BUNDLE_ZIP}"
+  manifest_target_count="$(manifest_value target_count "${MANIFEST_FILE}")"
+  [ -n "${manifest_target_count}" ] || die "staged manifest missing target_count"
+
+  TARGET_NAMES=()
+  while IFS= read -r target; do
+    [ -n "${target}" ] || continue
+    TARGET_NAMES+=("${target}")
+  done < <(sed -n 's/^target=//p' "${MANIFEST_FILE}")
+  [ "${#TARGET_NAMES[@]}" = "${manifest_target_count}" ] \
+    || die "staged manifest target_count ${manifest_target_count} does not match ${#TARGET_NAMES[@]} targets"
 
   actual_zip_count="$(find "${NEXUS_STAGE_DIR}" -maxdepth 1 -type f -name '*.xcframework.zip' | wc -l | tr -d ' ')"
   actual_sidecar_count="$(find "${NEXUS_STAGE_DIR}" -maxdepth 1 -type f -name '*.xcframework.zip.sha256' | wc -l | tr -d ' ')"
-  [ "${actual_zip_count}" = "${#EXPECTED_TARGETS[@]}" ] \
-    || die "expected ${#EXPECTED_TARGETS[@]} staged XCFramework ZIPs, found ${actual_zip_count}"
-  [ "${actual_sidecar_count}" = "${#EXPECTED_TARGETS[@]}" ] \
-    || die "expected ${#EXPECTED_TARGETS[@]} staged checksum sidecars, found ${actual_sidecar_count}"
+  [ "${actual_zip_count}" = "${#TARGET_NAMES[@]}" ] \
+    || die "expected ${#TARGET_NAMES[@]} staged XCFramework ZIPs, found ${actual_zip_count}"
+  [ "${actual_sidecar_count}" = "${#TARGET_NAMES[@]}" ] \
+    || die "expected ${#TARGET_NAMES[@]} staged checksum sidecars, found ${actual_sidecar_count}"
 
-  for target in "${EXPECTED_TARGETS[@]}"; do
+  for target in "${TARGET_NAMES[@]}"; do
     zip_name="${target}.xcframework.zip"
     [ -f "${NEXUS_STAGE_DIR}/${zip_name}" ] || die "missing staged artifact ${zip_name}"
     [ -f "${NEXUS_STAGE_DIR}/${zip_name}.sha256" ] || die "missing staged checksum sidecar ${zip_name}.sha256"
@@ -529,7 +554,7 @@ load_staged_context() {
     || die "staged release root ${RELEASE_ROOT_URL} does not match ${expected_release_root}"
 
   UPLOAD_FILES=()
-  for target in "${EXPECTED_TARGETS[@]}"; do
+  for target in "${TARGET_NAMES[@]}"; do
     zip_name="${target}.xcframework.zip"
     UPLOAD_FILES+=("${zip_name}" "${zip_name}.sha256")
   done
@@ -697,7 +722,7 @@ main() {
 
     build_if_needed
     load_release_context
-    verify_expected_targets
+    verify_generated_targets
     stage_outputs
   fi
 

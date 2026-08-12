@@ -14,18 +14,18 @@ SERVER_LOG="${TEST_ROOT}/server.log"
 REQUEST_LOG="${TEST_ROOT}/requests.log"
 
 EXPECTED_TARGETS=(
-  linphone
-  bctoolbox-ios
   bctoolbox
-  belr
+  bctoolbox-ios
+  belcard
   belle-sip
+  belr
+  lime
+  linphone
   mediastreamer2
   msamr
   mscodec2
   msopenh264
-  mbedcrypto
-  mbedtls
-  mbedx509
+  mswebrtc
   ortp
 )
 
@@ -92,28 +92,56 @@ EOF
   rm -rf "${fixture_dir}"
 done
 
-extra_target="belcard"
-fixture_dir="${TEST_ROOT}/${extra_target}.xcframework"
-mkdir -p \
-  "${fixture_dir}/ios-arm64/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF" \
-  "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF"
-printf '%s\n' "${extra_target}-device" > "${fixture_dir}/ios-arm64/${extra_target}"
-printf '%s\n' "${extra_target}-sim" > "${fixture_dir}/ios-arm64_x86_64-simulator/${extra_target}"
-printf '%s\n' symbols > "${fixture_dir}/ios-arm64/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF/${extra_target}"
-printf '%s\n' symbols > "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${extra_target}.framework.dSYM/Contents/Resources/DWARF/${extra_target}"
-cat > "${fixture_dir}/Info.plist" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>AvailableLibraries</key><array>
-<dict><key>LibraryIdentifier</key><string>ios-arm64</string><key>DebugSymbolsPath</key><string>dSYMs</string></dict>
-<dict><key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string><key>DebugSymbolsPath</key><string>dSYMs</string></dict>
-</array></dict></plist>
+{
+  cat <<'EOF'
+// swift-tools-version:5.9
+import PackageDescription
+
+let package = Package(
+    name: "linphonesw",
+    platforms: [
+        .iOS(.v13)
+    ],
+    products: [
+        .library(
+            name: "linphonesw",
+            targets: ["linphonesw"]
+        )
+    ],
+    targets: [
 EOF
-(
-  cd "${TEST_ROOT}"
-  zip -rq "${PACKAGE_DIR}/XCFrameworks/${extra_target}.xcframework.zip" "${extra_target}.xcframework"
+  for target in "${EXPECTED_TARGETS[@]}"; do
+    cat <<EOF
+        .binaryTarget(
+            name: "${target}",
+            url: "https://invalid.example/linphone-sdk-swift-ios-5.5.12+6308ecb470/XCFrameworks/${target}.xcframework.zip",
+            checksum: "fixture-${target}"
+        ),
+EOF
+  done
+  printf '        .target(\n'
+  printf '            name: "linphonexcframeworks",\n'
+  printf '            dependencies: ['
+  first=true
+  for target in "${EXPECTED_TARGETS[@]}"; do
+    if $first; then
+      first=false
+    else
+      printf ', '
+    fi
+    printf '"%s"' "${target}"
+  done
+  cat <<'EOF'
+]
+        ),
+        .target(
+            name: "linphonesw",
+            dependencies: ["linphonexcframeworks"]
+        )
+    ]
 )
-rm -rf "${fixture_dir}"
+EOF
+} > "${PACKAGE_DIR}/Package.swift"
 
 MISSING_DSYM_BUILD_DIR="${TEST_ROOT}/missing-dsym-build"
 cp -R "${BUILD_DIR}" "${MISSING_DSYM_BUILD_DIR}"
@@ -250,6 +278,9 @@ BINARY_TARGET_COUNT="$(grep -c '\.binaryTarget(' "${BUILD_ONLY_STAGING_DIR}/sour
 grep -q "release_version=${RELEASE_VERSION}" "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/bctoolbox.xcframework.zip" \
   "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
+grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/lime.xcframework.zip" \
+  "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
+grep -q '^target=lime$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 MANIFEST_VALIDATION_DIR="${TEST_ROOT}/manifest-validation"
 cp -R "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios" "${MANIFEST_VALIDATION_DIR}"
 sed -i.bak "s#${BASE_URL}#https://nexus.tools.textnow.io#g" "${MANIFEST_VALIDATION_DIR}/Package.swift"
@@ -259,10 +290,7 @@ swift package --package-path "${MANIFEST_VALIDATION_DIR}" dump-package >/dev/nul
 REMOTE_FILE_COUNT="$(find "${REMOTE_DIR}" -type f | wc -l | tr -d ' ')"
 [ "${REMOTE_FILE_COUNT}" -eq 26 ]
 [ "$(grep -c '^HEAD ' "${REQUEST_LOG}")" -eq 1 ]
-if find "${REMOTE_DIR}" -type f | grep -q 'belcard'; then
-  echo "unexpected extra XCFramework uploaded to remote store" >&2
-  exit 1
-fi
+find "${REMOTE_DIR}" -type f | grep -q 'lime\.xcframework\.zip'
 if find "${REMOTE_DIR}" -type f | grep -Eq 'linphone-sdk.*(\.podspec|\.zip)$'; then
   echo "unexpected SDK archive or podspec uploaded to remote store" >&2
   exit 1
