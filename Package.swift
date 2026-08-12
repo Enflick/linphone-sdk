@@ -14,73 +14,83 @@ let package = Package(
     ],
     targets: [
         .binaryTarget(
-            name: "linphone",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/linphone.xcframework.zip",
-            checksum: "a323ef9893717391a06a307c755567f3b5f98463be0570b9059480c491cd7f01"
-        ),
-        .binaryTarget(
             name: "bctoolbox-ios",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/bctoolbox-ios.xcframework.zip",
-            checksum: "3cb074e6fe1b8df1265d79ace8d6b98aed2802947df58b7023e50d60fcae5fd0"
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/bctoolbox-ios.xcframework.zip",
+            checksum: "69536a4ac4ebe4963b327508cfed8aac351b0fc0ec578d05146288eec10ffa88"
         ),
         .binaryTarget(
             name: "bctoolbox",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/bctoolbox.xcframework.zip",
-            checksum: "fa1363d6dfd3d6429fea21aac2666820a307c507b158336237c19e8e1b532817"
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/bctoolbox.xcframework.zip",
+            checksum: "d8be08bbf17ef155fcffb502439d35fa1b5db515eb134ca90ac6116dd75538ac"
         ),
         .binaryTarget(
-            name: "belr",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/belr.xcframework.zip",
-            checksum: "7e0b7e1672a8e5627c0e19530f937f7bb8cbec7fb2709f4a719b43056be66bec"
+            name: "belcard",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/belcard.xcframework.zip",
+            checksum: "29b5c42d442688c043bf328e64485cb917d20bf92401a1cae4ac983b29a96f68"
         ),
         .binaryTarget(
             name: "belle-sip",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/belle-sip.xcframework.zip",
-            checksum: "0c47833c7549b0a6333996d4f62cffbd7f3c1b7419ac8905734065c4d2cb9113"
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/belle-sip.xcframework.zip",
+            checksum: "081d2280833e02fd6d7bfeca9ef8500a395d6fb15da822d62225c052ee10f3be"
         ),
         .binaryTarget(
-            name: "mediastreamer2",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/mediastreamer2.xcframework.zip",
-            checksum: "51ba485b1df978acb4363c659fafad862850add3c5950f4e6b5ff180787924da"
+            name: "belr",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/belr.xcframework.zip",
+            checksum: "83528a8f405a3fe894fbf735ea4cf205ffae4b32d2394d41a51729cbd1b77fde"
         ),
         .binaryTarget(
-            name: "msamr",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/msamr.xcframework.zip",
-            checksum: "7f623ed15f82e172e7c5fa8790d89a9954460bcb0e8b5f1d7c3a58ca7fc10b2f"
+            name: "lime",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/lime.xcframework.zip",
+            checksum: "a2996e64032a177f8a15e46e2f7b0fc5223fe4536ad57a4b52de1d591af0e827"
         ),
         .binaryTarget(
-            name: "mscodec2",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/mscodec2.xcframework.zip",
-            checksum: "77aa9ee678083d54e1d1b9d93b65282d564917b634c9e04af2959124adfc9f38"
-        ),
-        .binaryTarget(
-            name: "msopenh264",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/msopenh264.xcframework.zip",
-            checksum: "d552001c8693d0218502d5eb510de070fc5e2f3428917ac463d11c88119e01fa"
+            name: "linphone",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/linphone.xcframework.zip",
+            checksum: "c42f8716e7f537abe2e29eaa42703a959937636f27f73f75a197adb5e01327f4"
         ),
         .binaryTarget(
             name: "mbedcrypto",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/mbedcrypto.xcframework.zip",
-            checksum: "5aa396e031c42038efa70bd4c34aceea41f3818399152b23c47da93a003d4807"
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/mbedcrypto.xcframework.zip",
+            checksum: "0bdcaa379b0b64208cf97971f46bcca75e9a7a7729ffd80eeb7bfe099cee8913"
         ),
         .binaryTarget(
             name: "mbedtls",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/mbedtls.xcframework.zip",
-            checksum: "b69e7c7eab32d97a6cc796de7a2f7c18939a07a40a8d98681c2302141244894b"
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/mbedtls.xcframework.zip",
+            checksum: "fd632a82132901711e22a41437b0eb9618dd1483f232de02b5bda714c40fef19"
         ),
         .binaryTarget(
             name: "mbedx509",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/mbedx509.xcframework.zip",
-            checksum: "cc89c616cf739fe95f37f1ff26eb1855ae1d2c42dbc24a169fd8c0aa1f2c0369"
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/mbedx509.xcframework.zip",
+            checksum: "3d73ccf1793322f57108ddbcb65f7c4de9d0a0a1e30ea136a5e228d11a51d8ad"
+        ),
+        .binaryTarget(
+            name: "mediastreamer2",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/mediastreamer2.xcframework.zip",
+            checksum: "abc38630f10113db92b5bebccbe1aa37c25e841d88bab5729621355277016296"
+        ),
+        .binaryTarget(
+            name: "msamr",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/msamr.xcframework.zip",
+            checksum: "1bb3c6ac9abad558109f1d8acc52c8d895dc7c4b7010339f71839b051e68e595"
+        ),
+        .binaryTarget(
+            name: "mscodec2",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/mscodec2.xcframework.zip",
+            checksum: "d796505801d4ea082a09f3b6950238e39f5ed494674580a427941d7ddc0b14e3"
+        ),
+        .binaryTarget(
+            name: "msopenh264",
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/msopenh264.xcframework.zip",
+            checksum: "de2e3261cc60b2e87723fbbdce63404220ce588795c8fcf0968e3e319056cf99"
         ),
         .binaryTarget(
             name: "ortp",
-            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.23-2625360cf/ortp.xcframework.zip",
-            checksum: "ea090664766d81e97975847ebcbd7e6d5561338e78dfaffa4260c870fe92b52b"
+            url: "https://nexus.tools.textnow.io/repository/ios-release/LinphoneSDK/5.5.13-pre.28-a69177bc6/ortp.xcframework.zip",
+            checksum: "c918b996b5a542f696eb782edee80ec0a5430fdb0abe6d45f31ddee28eb140f2"
         ),
         .target(
             name: "linphonesw",
-            dependencies: ["linphone", "bctoolbox-ios", "bctoolbox", "belr", "belle-sip", "mediastreamer2", "msamr", "mscodec2", "msopenh264", "mbedcrypto", "mbedtls", "mbedx509", "ortp"]
+            dependencies: ["bctoolbox-ios", "bctoolbox", "belcard", "belle-sip", "belr", "lime", "linphone", "mbedcrypto", "mbedtls", "mbedx509", "mediastreamer2", "msamr", "mscodec2", "msopenh264", "ortp"]
         )
     ]
 )
