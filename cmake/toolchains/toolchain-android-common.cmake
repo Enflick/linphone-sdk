@@ -82,6 +82,25 @@ else()
 	endif()
 endif()
 
+# The NDK legacy toolchain configures C, C++, and their target/sysroot flags,
+# but CMake can still discover the host assembler name ("as") when ASM is
+# enabled later by the SDK or by an external project such as AOM.  Assemble
+# through the configured Android Clang driver so the NDK target and sysroot
+# remain in effect for every ABI.
+if(CMAKE_C_COMPILER)
+	set(CMAKE_ASM_COMPILER "${CMAKE_C_COMPILER}" CACHE FILEPATH "Android assembler compiler" FORCE)
+	if(CMAKE_C_COMPILER_TARGET)
+		set(CMAKE_ASM_COMPILER_TARGET "${CMAKE_C_COMPILER_TARGET}" CACHE STRING "Android assembler target" FORCE)
+	endif()
+	set(CMAKE_ASM_FLAGS_INIT "${CMAKE_C_FLAGS_INIT}")
+	if(CMAKE_C_COMPILER_TARGET AND NOT CMAKE_ASM_FLAGS_INIT MATCHES "(^|[ ]|;)--target=")
+		string(APPEND CMAKE_ASM_FLAGS_INIT " --target=${CMAKE_C_COMPILER_TARGET}")
+	endif()
+	if(CMAKE_SYSROOT AND NOT CMAKE_ASM_FLAGS_INIT MATCHES "(^|[ ]|;)--sysroot=")
+		string(APPEND CMAKE_ASM_FLAGS_INIT " --sysroot=${CMAKE_SYSROOT}")
+	endif()
+endif()
+
 set(CMAKE_CXX_FLAGS_RELEASE "-Os -DNDEBUG")
 set(CMAKE_C_FLAGS_RELEASE "-Os -DNDEBUG")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-Os -g -DNDEBUG")
