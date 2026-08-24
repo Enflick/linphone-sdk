@@ -16,9 +16,17 @@ the shared Android and iOS source patch stack.
 | Enflick changes | the commits after that tag on `main` |
 
 The current changes include the shared TextNow call/reconnect fixes, the native
-decoded-audio tap used by the calling-quality harness, and the tested mobile
-Opus OSCE configuration. They apply to both platforms unless a commit says
-otherwise.
+decoded-audio tap used by the calling-quality harness, the tested mobile Opus
+OSCE configuration, and the following narrow AAudio player backports from
+upstream Linphone SDK releases:
+
+- `d3f1f22a7b692f224066cbd4793a723804063027` from 5.5.13, preventing late
+  callbacks from using destroyed player state.
+- `139bdf8bcb1f5cce54c414b47d06ef4f7c1c4ae5` from 5.5.14, guarding rapid
+  filter destruction during AAudio initialization retries.
+
+The existing shared changes apply to both platforms unless a commit says
+otherwise; these AAudio backports apply to Android builds.
 
 ### iOS distribution
 
@@ -41,8 +49,12 @@ receive the organization secrets `NEXUS_CAPI_USER` and
 
 The parallel `Android Release Publish` workflow builds the four-ABI release and
 debug AAR publications, stages their immutable Maven version directories, and
-publishes them to the Nexus `linphone-tn` repository. It uses the same
-credential-free build and credential-scoped publish boundary as the iOS flow.
+publishes them to the Nexus `linphone-tn` repository. Both release workflows
+restore the pinned GitHub source-dependency bundle before building through the
+GitHub release-asset API using the build job's read-only `GITHUB_TOKEN`, then use
+the same credential-free build and credential-scoped publish boundary. The
+Android build job has no `NEXUS_CAPI_USER` or `NEXUS_CAPI_PASSWORD`; those
+credentials are available only to the separate publication job.
 
 ### Repository layout and dependencies
 

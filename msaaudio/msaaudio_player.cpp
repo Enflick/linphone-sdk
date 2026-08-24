@@ -100,6 +100,7 @@ struct AAudioOutputContext {
 
 	~AAudioOutputContext() {
 		ms_worker_thread_destroy(process_thread, TRUE);
+		process_thread = nullptr;
 		ms_flow_controlled_bufferizer_uninit(&buffer);
 		ms_mutex_destroy(&mutex);
 		ms_mutex_destroy(&stream_mutex);
@@ -114,31 +115,35 @@ struct AAudioOutputContext {
 	}
 
 	void updateStreamTypeFromMsSndCard() {
-		MSSndCardStreamType type = ms_snd_card_get_stream_type(soundCard);
-		switch (type) {
-			case MS_SND_CARD_STREAM_RING:
-				usage = AAUDIO_USAGE_NOTIFICATION_RINGTONE;
-				content_type = AAUDIO_CONTENT_TYPE_MUSIC;
-				ms_message("[AAudio Player] Using RING mode");
-				break;
-			case MS_SND_CARD_STREAM_MEDIA:
-				usage = AAUDIO_USAGE_MEDIA;
-				content_type = AAUDIO_CONTENT_TYPE_MUSIC;
-				ms_message("[AAudio Player] Using MEDIA mode");
-				break;
-			case MS_SND_CARD_STREAM_DTMF:
-				usage = AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING;
-				content_type = AAUDIO_CONTENT_TYPE_SONIFICATION;
-				ms_message("[AAudio Player] Using DTMF mode");
-				break;
-			case MS_SND_CARD_STREAM_VOICE:
-				usage = AAUDIO_USAGE_VOICE_COMMUNICATION;
-				content_type = AAUDIO_CONTENT_TYPE_SPEECH;
-				ms_message("[AAudio Player] Using COMMUNICATION mode");
-				break;
-			default:
-				ms_error("[AAudio Player] Unknown stream type %0d", type);
-				break;
+		if (soundCard) {
+			MSSndCardStreamType type = ms_snd_card_get_stream_type(soundCard);
+			switch (type) {
+				case MS_SND_CARD_STREAM_RING:
+					usage = AAUDIO_USAGE_NOTIFICATION_RINGTONE;
+					content_type = AAUDIO_CONTENT_TYPE_MUSIC;
+					ms_message("[AAudio Player] Using RING mode");
+					break;
+				case MS_SND_CARD_STREAM_MEDIA:
+					usage = AAUDIO_USAGE_MEDIA;
+					content_type = AAUDIO_CONTENT_TYPE_MUSIC;
+					ms_message("[AAudio Player] Using MEDIA mode");
+					break;
+				case MS_SND_CARD_STREAM_DTMF:
+					usage = AAUDIO_USAGE_VOICE_COMMUNICATION_SIGNALLING;
+					content_type = AAUDIO_CONTENT_TYPE_SONIFICATION;
+					ms_message("[AAudio Player] Using DTMF mode");
+					break;
+				case MS_SND_CARD_STREAM_VOICE:
+					usage = AAUDIO_USAGE_VOICE_COMMUNICATION;
+					content_type = AAUDIO_CONTENT_TYPE_SPEECH;
+					ms_message("[AAudio Player] Using COMMUNICATION mode");
+					break;
+				default:
+					ms_error("[AAudio Player] Unknown stream type %0d", type);
+					break;
+			}
+		} else {
+			ms_error("[AAudio Player] No soundcard configured!");
 		}
 	}
 
@@ -189,6 +194,7 @@ static void android_snd_write_uninit(MSFilter *obj){
 	ms_usleep(10000);
 
 	if (octx->soundCard) {
+		ms_message("[AAudio Player] Filter is being destroyed, releasing sound card ref");
 		ms_snd_card_unref(octx->soundCard);
 		octx->soundCard = nullptr;
 	}
@@ -224,7 +230,7 @@ static int android_snd_write_get_nchannels(MSFilter *obj, void *data) {
 
 static aaudio_data_callback_result_t aaudio_player_callback(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames) {
 	AAudioOutputContext *octx = (AAudioOutputContext*)userData;
-	if (!octx || !stream) {
+	if (!octx || !octx->process_thread || !stream) {
 		ms_error("[AAudio Player] aaudio_player_callback received when either no context or stream");
 		return AAUDIO_CALLBACK_RESULT_STOP;
 	}
@@ -254,6 +260,11 @@ static bool_t aaudio_player_init(AAudioOutputContext *octx);
 static void _aaudio_player_init(AAudioOutputContext *octx) {
 	AAudioStreamBuilder *builder;
 	AAudioStream *stream = nullptr;
+
+	if (!octx->soundCard) {
+		ms_warning("[AAudio Player] No soundcard configured, can't init player at this time");
+		return;
+	}
 
 	aaudio_result_t result = AAudio_createStreamBuilder(&builder);
 	if (result != AAUDIO_OK && !builder) {
@@ -464,15 +475,19 @@ static void anroid_snd_write_require_volume_hack_depending_on_stream(AAudioOutpu
 static void android_snd_write_preprocess(MSFilter *obj) {
 	AAudioOutputContext *octx = (AAudioOutputContext*)obj->data;
 	
-	if (ms_snd_card_get_device_type(octx->soundCard) == MSSndCardDeviceType::MS_SND_CARD_DEVICE_TYPE_BLUETOOTH ||
-		ms_snd_card_get_device_type(octx->soundCard) == MSSndCardDeviceType::MS_SND_CARD_DEVICE_TYPE_HEARING_AID)
-	{
-		ms_message("[AAudio Player] We were asked to use a bluetooth sound device (or hearing aid), starting SCO in Android's AudioManager");
-		octx->bluetoothScoStarted = true;
-		ms_android_sound_utils_enable_bluetooth(octx->sound_utils, octx->bluetoothScoStarted);
-	}
+	if (octx->soundCard) {
+		if (ms_snd_card_get_device_type(octx->soundCard) == MSSndCardDeviceType::MS_SND_CARD_DEVICE_TYPE_BLUETOOTH ||
+			ms_snd_card_get_device_type(octx->soundCard) == MSSndCardDeviceType::MS_SND_CARD_DEVICE_TYPE_HEARING_AID)
+		{
+			ms_message("[AAudio Player] We were asked to use a bluetooth sound device (or hearing aid), starting SCO in Android's AudioManager");
+			octx->bluetoothScoStarted = true;
+			ms_android_sound_utils_enable_bluetooth(octx->sound_utils, octx->bluetoothScoStarted);
+		}
 
-	ms_worker_thread_add_task(octx->process_thread, (MSTaskFunc)aaudio_player_init, octx);
+		ms_worker_thread_add_task(octx->process_thread, (MSTaskFunc)aaudio_player_init, octx);
+	} else {
+		ms_warning("[AAudio Player] No soundcard configured, don't try to init player yet");
+	}
 }
 
 static bool_t android_snd_adjust_buffer_size(AAudioOutputContext *octx) {
@@ -512,7 +527,7 @@ static void android_snd_write_process(MSFilter *obj) {
 
 			if (octx->checkForDeviceChange) {
 				int id = (int)AAudioStream_getDeviceId(octx->stream);
-				if (id != octx->soundCard->internal_id) {
+				if (octx->soundCard && id != octx->soundCard->internal_id) {
 					ms_warning("[AAudio Player] Device has changed, restarting stream");
 					octx->restartAttemptsCount = 0;
 					ms_worker_thread_add_task(octx->process_thread, (MSTaskFunc)aaudio_player_restart, octx);
@@ -559,6 +574,7 @@ static void android_snd_write_process(MSFilter *obj) {
 static void android_snd_write_postprocess(MSFilter *obj) {
 	AAudioOutputContext *octx = (AAudioOutputContext*)obj->data;
 
+	octx->restartScheduled = false;
 	octx->adjustingBufferSize = false;
 	octx->task = ms_worker_thread_add_waitable_task(octx->process_thread, (MSTaskFunc)aaudio_player_close, octx);
 	
@@ -579,9 +595,11 @@ static int android_snd_write_set_device_id(MSFilter *obj, void *data) {
 		return -1;
 	}
 
-	ms_message("[AAudio Player] Requesting to output card. Current [%s] (device ID %0d) and requested [%s] (device ID %0d)", ms_snd_card_get_string_id(octx->soundCard), octx->soundCard->internal_id, ms_snd_card_get_string_id(card), card->internal_id);
+	const char *currentCardId = octx->soundCard ? ms_snd_card_get_string_id(octx->soundCard) : "none";
+	int currentDeviceId = octx->soundCard ? octx->soundCard->internal_id : -1;
+	ms_message("[AAudio Player] Requesting to output card. Current [%s] (device ID %0d) and requested [%s] (device ID %0d)", currentCardId, currentDeviceId, ms_snd_card_get_string_id(card), card->internal_id);
 	// Change device ID only if the new value is different from the previous one
-	if (octx->soundCard->internal_id != card->internal_id) {
+	if (!octx->soundCard || octx->soundCard->internal_id != card->internal_id) {
 		MSSndCard *previousSoundCard = octx->soundCard;
 		octx->soundCard = ms_snd_card_ref(card);
 		if (previousSoundCard) {
@@ -619,6 +637,10 @@ static int android_snd_write_set_device_id(MSFilter *obj, void *data) {
 static int android_snd_write_get_device_id(MSFilter *obj, void *data) {
 	int *n = (int*)data;
 	AAudioOutputContext *octx = (AAudioOutputContext*)obj->data;
+	if (!octx->soundCard) {
+		*n = -1;
+		return -1;
+	}
 	*n = octx->soundCard->internal_id;
 	return 0;
 }

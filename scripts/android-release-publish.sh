@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${REPO_ROOT}/build/android}"
 STAGING_DIR="${STAGING_DIR:-${REPO_ROOT}/out/android-release}"
 ANDROID_ARCHS="${ANDROID_ARCHS:-arm64,armv7,x86,x86_64}"
+LINPHONE_ANDROID_BUILD_JOBS="${LINPHONE_ANDROID_BUILD_JOBS:-2}"
 NEXUS_BASE_URL="${NEXUS_BASE_URL:-https://nexus.tools.textnow.io}"
 NEXUS_REPOSITORY="${NEXUS_REPOSITORY:-linphone-tn}"
 NEXUS_USERNAME="${NEXUS_USERNAME:-${NEXUS_CAPI_USER:-}}"
@@ -20,11 +21,43 @@ ARTIFACT_IDS=(linphone-sdk-android linphone-sdk-android-debug)
 EXPECTED_ABIS=(arm64-v8a armeabi-v7a x86 x86_64)
 UPLOAD_FILES=()
 
+# Keep the published Android AAR aligned with the shipped 5.5.12-v2-6308ecb
+# voice-only artifact. These are explicit so preset defaults cannot silently
+# re-enable video or its optional dependencies.
+ANDROID_RELEASE_CMAKE_FLAGS=(
+  -DENABLE_GPL_THIRD_PARTIES=OFF
+  -DENABLE_NON_FREE_FEATURES=OFF
+  -DENABLE_VIDEO=OFF
+  -DENABLE_ADVANCED_IM=OFF
+  -DENABLE_DB_STORAGE=OFF
+  -DENABLE_VCARD=OFF
+  -DENABLE_MKV=OFF
+  -DENABLE_LDAP=OFF
+  -DENABLE_JPEG=OFF
+  -DENABLE_QRCODE=OFF
+  -DENABLE_FLEXIAPI=OFF
+  -DENABLE_LIME=OFF
+  -DENABLE_LIME_X3DH=OFF
+  -DENABLE_GSM=OFF
+  -DENABLE_AV1=OFF
+  -DENABLE_VPX=OFF
+  -DENABLE_LIBYUV=OFF
+  -DENABLE_CAMERA2=OFF
+  -DENABLE_DOC=OFF
+  -DENABLE_AAUDIO=ON
+  -DENABLE_OPENSLES=ON
+  -DENABLE_WEBRTC_AEC=ON
+)
+
 log() { printf '[android-release] %s\n' "$*" >&2; }
 die() { printf '[android-release] ERROR: %s\n' "$*" >&2; exit 1; }
 require_cmd() { command -v "$1" >/dev/null 2>&1 || die "required command '$1' not found"; }
 sha256_file() { shasum -a 256 "$1" | awk '{print $1}'; }
 real_path() { python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
+validate_build_jobs() {
+  [[ "$LINPHONE_ANDROID_BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] \
+    || die "LINPHONE_ANDROID_BUILD_JOBS must be a positive integer"
+}
 
 usage() {
   cat <<'EOF'
@@ -79,19 +112,23 @@ build_sdk() {
     return
   fi
   [ -n "${ANDROID_NDK_HOME:-}" ] || die "ANDROID_NDK_HOME is required"
+  export CMAKE_BUILD_PARALLEL_LEVEL="$LINPHONE_ANDROID_BUILD_JOBS"
   cmake --preset=android-sdk -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DLINPHONESDK_ANDROID_ARCHS="$ANDROID_ARCHS" \
-    -DLINPHONESDK_VERSION="$RELEASE_VERSION"
-  cmake --build "$BUILD_DIR" --parallel
+    -DLINPHONESDK_VERSION="$RELEASE_VERSION" \
+    "${ANDROID_RELEASE_CMAKE_FLAGS[@]}"
+  cmake --build "$BUILD_DIR" --parallel "$LINPHONE_ANDROID_BUILD_JOBS"
 }
 
 verify_aar() {
-  local aar="$1" abi="" entries=""
+  local aar="$1" abi="" entries="" unexpected=""
   entries="$(unzip -Z1 "$aar")"
   for abi in "${EXPECTED_ABIS[@]}"; do
     printf '%s\n' "$entries" | grep -q "^jni/${abi}/" || die "${aar} is missing ABI ${abi}"
   done
+  unexpected="$(printf '%s\n' "$entries" | grep -Eiq '^jni/[^/]*/[^/]*(video|camera|jpeg|zxing|vpx|aom|dav1d|yuv)[^/]*$' && printf '%s\n' "$entries" | grep -Ei '^jni/[^/]*/[^/]*(video|camera|jpeg|zxing|vpx|aom|dav1d|yuv)[^/]*$' || true)"
+  [ -z "$unexpected" ] || die "${aar} contains unexpected video JNI artifacts: ${unexpected}"
 }
 
 verify_pom() {
@@ -238,6 +275,7 @@ parse_args() {
 
 main() {
   parse_args "$@"
+  validate_build_jobs
   $BUILD_ONLY && $PUBLISH_STAGED && die "--build-only and --publish-staged are mutually exclusive"
   $BUILD_ONLY && $DRY_RUN && die "--build-only and --dry-run are mutually exclusive"
   require_cmd curl; require_cmd shasum; require_cmd unzip; require_cmd python3

@@ -22,6 +22,8 @@ jobs:
     name: Build staged Android Maven release
     runs-on: textnow-android
     timeout-minutes: 240
+    env:
+      LINPHONE_ANDROID_BUILD_JOBS: '2'
     outputs:
       release_version: ${{ steps.stage.outputs.release_version }}
     steps:
@@ -44,32 +46,438 @@ jobs:
             }
           fi
 
-      - name: Sync submodules
+      - name: Restore pinned submodules
+        shell: bash
+        env:
+          SOURCE_BUNDLE_ASSET: linphone-submodules-5.5.12-088bab728-r2.tar.gz
+          SOURCE_BUNDLE_SHA256: 1bbad0a29699b62ed398d603a4032248853d379c83cf726fbb605b5282453058
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bundle="${RUNNER_TEMP}/${SOURCE_BUNDLE_ASSET}"
+          release_asset_url="https://api.github.com/repos/Enflick/linphone-sdk/releases/assets/509435882"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --header 'Accept: application/octet-stream' \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            --output "${bundle}" \
+            "${release_asset_url}"
+          printf '%s  %s\n' "${SOURCE_BUNDLE_SHA256}" "${bundle}" \
+            | shasum -a 256 --check
+          chmod +x scripts/restore-submodule-source-bundle.sh
+          scripts/restore-submodule-source-bundle.sh "${bundle}"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        shell: bash
+        env:
+          ANDROID_SDK_TOOLS_URL: https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          ANDROID_SDK_TOOLS_SHA256: 2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258
+        run: |
+          set -euo pipefail
+          sdk_root="${RUNNER_TEMP}/android-sdk"
+          archive="${RUNNER_TEMP}/commandlinetools-linux-11076708_latest.zip"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --output "${archive}" \
+            "${ANDROID_SDK_TOOLS_URL}"
+          printf '%s  %s\n' "${ANDROID_SDK_TOOLS_SHA256}" "${archive}" | sha256sum --check
+          rm -rf "${sdk_root}"
+          mkdir -p "${sdk_root}/cmdline-tools"
+          unzip -q "${archive}" -d "${sdk_root}/cmdline-tools"
+          mv "${sdk_root}/cmdline-tools/cmdline-tools" "${sdk_root}/cmdline-tools/latest"
+          sdkmanager="${sdk_root}/cmdline-tools/latest/bin/sdkmanager"
+          chmod +x "${sdkmanager}"
+          export ANDROID_HOME="${sdk_root}"
+          export ANDROID_SDK_ROOT="${sdk_root}"
+          set +o pipefail
+          if yes | "${sdkmanager}" --sdk_root="${sdk_root}" --licenses >/dev/null 2>&1; then
+            sdkmanager_status="${PIPESTATUS[1]}"
+          else
+            sdkmanager_status="${PIPESTATUS[1]}"
+          fi
+          set -o pipefail
+          if [ "${sdkmanager_status}" -ne 0 ]; then
+            exit "${sdkmanager_status}"
+          fi
+          "${sdkmanager}" --sdk_root="${sdk_root}" \
+            'platform-tools' \
+            'platforms;android-34' \
+            'build-tools;34.0.0' \
+            'cmake;3.22.1' \
+            'ndk;27.2.12479018'
+          {
+            echo "ANDROID_HOME=${sdk_root}"
+            echo "ANDROID_SDK_ROOT=${sdk_root}"
+          } >> "${GITHUB_ENV}"
+          echo "${sdk_root}/cmdline-tools/latest/bin" >> "${GITHUB_PATH}"
+
+      - name: Configure Android SDK tool paths
         shell: bash
         run: |
           set -euo pipefail
-          git submodule sync --recursive
-          git submodule update --init --recursive --jobs 4
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          [ -n "${sdk_root}" ] || { echo "Android SDK path was not provided by the SDK installer" >&2; exit 1; }
+          cmake_bin="${sdk_root}/cmake/3.22.1/bin"
+          ndk_dir="${sdk_root}/ndk/27.2.12479018"
+          llvm_host_dir="${ndk_dir}/toolchains/llvm/prebuilt/linux-x86_64"
+          llvm_bin="${llvm_host_dir}/bin"
+          [ -x "${cmake_bin}/cmake" ] || { echo "SDK CMake 3.22.1 not found at ${cmake_bin}" >&2; exit 1; }
+          [ -x "${cmake_bin}/ninja" ] || { echo "SDK Ninja not found at ${cmake_bin}" >&2; exit 1; }
+          [ -f "${ndk_dir}/source.properties" ] || { echo "Android NDK 27.2.12479018 not found at ${ndk_dir}" >&2; exit 1; }
+          [ -x "${llvm_bin}/clang" ] || { echo "NDK host clang not found at ${llvm_bin}" >&2; exit 1; }
+          [ -x "${llvm_bin}/clang++" ] || { echo "NDK host clang++ not found at ${llvm_bin}" >&2; exit 1; }
+          echo "${cmake_bin}" >> "${GITHUB_PATH}"
+          echo "ANDROID_NDK_HOME=${ndk_dir}" >> "${GITHUB_ENV}"
+
+      - name: Install pinned Zig host compiler
+        shell: bash
+        env:
+          ZIG_URL: https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          ZIG_SHA256: d45312e61ebcc48032b77bc4cf7fd6915c11fa16e4aad116b66c9468211230ea
+        run: |
+          set -euo pipefail
+          zig_archive="${RUNNER_TEMP}/zig-linux-x86_64-0.13.0.tar.xz"
+          zig_root="${RUNNER_TEMP}/zig-linux-x86_64-0.13.0"
+          zig_bin="${zig_root}/zig"
+          host_cc="${RUNNER_TEMP}/zig-host-cc"
+          host_cxx="${RUNNER_TEMP}/zig-host-cxx"
+          host_ar="${RUNNER_TEMP}/zig-host-ar"
+          host_ranlib="${RUNNER_TEMP}/zig-host-ranlib"
+          host_ld="${RUNNER_TEMP}/zig-host-ld"
+          host_source="${RUNNER_TEMP}/zig-host-compiler-test.c"
+          host_binary="${RUNNER_TEMP}/zig-host-compiler-test"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --output "${zig_archive}" \
+            "${ZIG_URL}"
+          printf '%s  %s\n' "${ZIG_SHA256}" "${zig_archive}" | sha256sum --check
+          secure_tar_extract="${RUNNER_TEMP}/secure-tar-extract.py"
+          cat > "${secure_tar_extract}" <<'PY'
+          import os
+          import pathlib
+          import shutil
+          import sys
+          import tarfile
+
+          archive_path, destination = sys.argv[1:]
+          destination_path = os.path.realpath(destination)
+
+          try:
+              with tarfile.open(archive_path) as archive:
+                  members = archive.getmembers()
+                  validated_members = []
+                  for member in members:
+                      member_name = member.name
+                      member_parts = pathlib.PurePosixPath(member_name).parts
+                      member_path = os.path.realpath(
+                          os.path.join(destination_path, *member_parts)
+                      )
+                      if (
+                          os.path.isabs(member_name)
+                          or ".." in member_parts
+                          or os.path.commonpath((destination_path, member_path))
+                          != destination_path
+                      ):
+                          raise ValueError(
+                              f"absolute or traversal path {member_name!r}"
+                          )
+                      if (
+                          member.issym()
+                          or member.islnk()
+                          or member.ischr()
+                          or member.isblk()
+                          or member.isfifo()
+                      ):
+                          raise ValueError(
+                              f"links or special files are forbidden: {member_name!r}"
+                          )
+                      if not (member.isdir() or member.isreg()):
+                          raise ValueError(
+                              f"only regular files and directories are allowed: "
+                              f"{member_name!r}"
+                          )
+                      validated_members.append((member, member_path))
+
+                  for member, member_path in validated_members:
+                      if member.isdir():
+                          os.makedirs(member_path, exist_ok=True)
+                  for member, member_path in validated_members:
+                      if member.isreg():
+                          os.makedirs(os.path.dirname(member_path), exist_ok=True)
+                          with archive.extractfile(member) as source, open(
+                              member_path, "wb"
+                          ) as target:
+                              shutil.copyfileobj(source, target)
+                          os.chmod(member_path, member.mode & 0o7777)
+          except (OSError, tarfile.TarError, ValueError) as error:
+              raise SystemExit(
+                  f"Secure tar extraction failed for {archive_path}: {error}"
+              ) from error
+          PY
+          chmod 0755 "${secure_tar_extract}"
+          rm -rf "${zig_root}"
+          python3 "${secure_tar_extract}" "${zig_archive}" "${RUNNER_TEMP}"
+          [ -x "${zig_bin}" ] || { echo "Zig executable not found at ${zig_bin}" >&2; exit 1; }
+          [ "$("${zig_bin}" version)" = '0.13.0' ] || { echo "Zig 0.13.0 is required" >&2; exit 1; }
+          printf '%s\n' '#!/usr/bin/env bash' "exec \"${zig_bin}\" cc \"\$@\"" > "${host_cc}"
+          printf '%s\n' '#!/usr/bin/env bash' "exec \"${zig_bin}\" c++ \"\$@\"" > "${host_cxx}"
+          printf '%s\n' '#!/usr/bin/env bash' "exec \"${zig_bin}\" ar \"\$@\"" > "${host_ar}"
+          printf '%s\n' '#!/usr/bin/env bash' "exec \"${zig_bin}\" ranlib \"\$@\"" > "${host_ranlib}"
+          printf '%s\n' '#!/usr/bin/env bash' "exec \"${zig_bin}\" ld.lld \"\$@\"" > "${host_ld}"
+          chmod +x "${host_cc}" "${host_cxx}" "${host_ar}" "${host_ranlib}" "${host_ld}"
+          "${host_ar}" --help >/dev/null
+          "${host_ranlib}" --help >/dev/null
+          "${host_ld}" --version >/dev/null
+          "${host_ld}" --help >/dev/null
+          printf '%s\n' '#include <stdio.h>' 'int main(void) { puts("zig-host-ok"); return 0; }' > "${host_source}"
+          "${host_cc}" "${host_source}" -o "${host_binary}"
+          [ "$("${host_binary}")" = 'zig-host-ok' ]
+          {
+            echo "CC=${host_cc}"
+            echo "CXX=${host_cxx}"
+            echo "ZIG_HOST_AR=${host_ar}"
+            echo "ZIG_HOST_RANLIB=${host_ranlib}"
+            echo "ZIG_HOST_LD=${host_ld}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Install Python build dependencies
+        shell: bash
+        env:
+          PYSTACHE_WHEEL_URL: https://files.pythonhosted.org/packages/fa/78/ffd13a516219129cef6a754a11ba2a1c0d69f1e281af4f6bca9ed5327219/pystache-0.6.8-py3-none-any.whl
+          PYSTACHE_WHEEL_SHA256: 7211e000974a6e06bce2d4d5cad8df03bcfffefd367209117376e4527a1c3cb8
+          SIX_WHEEL_URL: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
+          SIX_WHEEL_SHA256: 4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+          MESON_WHEEL_URL: https://files.pythonhosted.org/packages/55/a6/47b9353c331318a13eb050887eacfd61eb075746285f9baf7ef7de6ae235/meson-1.5.2-py3-none-any.whl
+          MESON_WHEEL_SHA256: 77706e2368a00d789c097632ccf4fc39251fba56d03e1e1b262559a3c7a08f5b
+        run: |
+          set -euo pipefail
+          python_site="${RUNNER_TEMP}/python-site"
+          pystache_wheel="${RUNNER_TEMP}/pystache-0.6.8-py3-none-any.whl"
+          six_wheel="${RUNNER_TEMP}/six-1.17.0-py2.py3-none-any.whl"
+          meson_wheel="${RUNNER_TEMP}/meson-1.5.2-py3-none-any.whl"
+          meson_bin="${RUNNER_TEMP}/meson-bin"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --output "${pystache_wheel}" \
+            "${PYSTACHE_WHEEL_URL}"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --output "${six_wheel}" \
+            "${SIX_WHEEL_URL}"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --output "${meson_wheel}" \
+            "${MESON_WHEEL_URL}"
+          printf '%s  %s\n' "${PYSTACHE_WHEEL_SHA256}" "${pystache_wheel}" | sha256sum --check
+          printf '%s  %s\n' "${SIX_WHEEL_SHA256}" "${six_wheel}" | sha256sum --check
+          printf '%s  %s\n' "${MESON_WHEEL_SHA256}" "${meson_wheel}" | sha256sum --check
+          rm -rf "${python_site}"
+          rm -rf "${meson_bin}"
+          mkdir -p "${python_site}"
+          mkdir -p "${meson_bin}"
+          unzip -q "${pystache_wheel}" -d "${python_site}"
+          unzip -q "${six_wheel}" -d "${python_site}"
+          unzip -q "${meson_wheel}" -d "${python_site}"
+          export PYTHONPATH="${python_site}${PYTHONPATH:+:${PYTHONPATH}}"
+          echo "PYTHONPATH=${PYTHONPATH}" >> "${GITHUB_ENV}"
+          printf '%s\n' '#!/usr/bin/env bash' 'exec python3 -m mesonbuild.mesonmain "$@"' > "${meson_bin}/meson"
+          chmod 0755 "${meson_bin}/meson"
+          echo "${meson_bin}" >> "${GITHUB_PATH}"
+          python3 - <<'PY'
+          import pystache  # noqa: F401
+          import six  # noqa: F401
+          PY
+          meson_version="$("${meson_bin}/meson" --version)"
+          [ "${meson_version}" = '1.5.2' ] || { echo "Meson 1.5.2 is required, found ${meson_version}" >&2; exit 1; }
+
+      - name: Bootstrap pinned GNU Make
+        shell: bash
+        env:
+          MAKE_URL: https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz
+          MAKE_SHA256: dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3
+        run: |
+          set -euo pipefail
+          make_archive="${RUNNER_TEMP}/make-4.4.1.tar.gz"
+          make_root="${RUNNER_TEMP}/make-4.4.1"
+          make_prefix="${RUNNER_TEMP}/make-4.4.1-install"
+          make_bin="${RUNNER_TEMP}/make-bin"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --output "${make_archive}" \
+            "${MAKE_URL}"
+          printf '%s  %s\n' "${MAKE_SHA256}" "${make_archive}" | sha256sum --check
+          rm -rf "${make_root}" "${make_prefix}" "${make_bin}"
+          python3 "${RUNNER_TEMP}/secure-tar-extract.py" "${make_archive}" "${RUNNER_TEMP}"
+          [ -x "${make_root}/configure" ] || { echo "GNU Make configure script not found at ${make_root}/configure" >&2; exit 1; }
+          (
+            cd "${make_root}"
+            CC="${CC}" \
+            CXX="${CXX}" \
+            AR="${ZIG_HOST_AR}" \
+            RANLIB="${ZIG_HOST_RANLIB}" \
+            LD="${ZIG_HOST_LD}" \
+              ./configure --disable-nls --disable-dependency-tracking --prefix="${make_prefix}"
+            sh build.sh
+          )
+          [ -x "${make_root}/make" ] || { echo "GNU Make executable not found at ${make_root}/make" >&2; exit 1; }
+          mkdir -p "${make_bin}"
+          install -m 0755 "${make_root}/make" "${make_bin}/make"
+          echo "${make_bin}" >> "${GITHUB_PATH}"
+          make_version="$("${make_bin}/make" --version | sed -n '1p')"
+          [ "${make_version}" = 'GNU Make 4.4.1' ] || { echo "GNU Make 4.4.1 is required, found ${make_version}" >&2; exit 1; }
+
+      - name: Install pinned Doxygen
+        shell: bash
+        env:
+          DOXYGEN_URL: https://github.com/doxygen/doxygen/releases/download/Release_1_9_8/doxygen-1.9.8.linux.bin.tar.gz
+          DOXYGEN_SHA256: dda773bdc62384b7d796fe8b6c5029daad72483e4c8ad4abf6ee9fb98b649388
+        run: |
+          set -euo pipefail
+          doxygen_archive="${RUNNER_TEMP}/doxygen-1.9.8.linux.bin.tar.gz"
+          doxygen_root="${RUNNER_TEMP}/doxygen-1.9.8"
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --proto-redir '=https' \
+            --retry 4 \
+            --retry-delay 2 \
+            --retry-max-time 900 \
+            --connect-timeout 15 \
+            --max-time 900 \
+            --output "${doxygen_archive}" \
+            "${DOXYGEN_URL}"
+          printf '%s  %s\n' "${DOXYGEN_SHA256}" "${doxygen_archive}" | sha256sum --check
+          rm -rf "${doxygen_root}"
+          python3 "${RUNNER_TEMP}/secure-tar-extract.py" "${doxygen_archive}" "${RUNNER_TEMP}"
+          [ -x "${doxygen_root}/bin/doxygen" ] || { echo "Doxygen executable not found at ${doxygen_root}/bin/doxygen" >&2; exit 1; }
+          echo "${doxygen_root}/bin" >> "${GITHUB_PATH}"
+          doxygen_version="$("${doxygen_root}/bin/doxygen" --version)"
+          [[ "${doxygen_version}" == 1.9.8* ]] || { echo "Doxygen 1.9.8 is required, found ${doxygen_version}" >&2; exit 1; }
 
       - name: Validate Android build toolchain
         shell: bash
         run: |
           set -euo pipefail
-          for cmd in cmake curl git java javac ninja python3 shasum unzip zip; do
+          for cmd in cmake curl doxygen git java javac make meson ninja perl python3 shasum sha256sum tar unzip; do
             command -v "$cmd" >/dev/null 2>&1 || { echo "missing command: $cmd" >&2; exit 1; }
           done
           java_major="$(java -version 2>&1 | awk -F'[".]' '/version/ {print $2}')"
           [ "${java_major}" = 17 ] || { echo "Java 17 is required, found ${java_major}" >&2; exit 1; }
-          ndk_dir="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
-          if [ -z "${ndk_dir}" ] && [ -d "${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}/ndk" ]; then
-            ndk_dir="$(find "${ANDROID_SDK_ROOT:-${ANDROID_HOME}}/ndk" -mindepth 1 -maxdepth 1 -type d -name '27*' | sort -V | tail -n 1)"
-          fi
-          [ -f "${ndk_dir}/source.properties" ] || { echo "Android NDK 27 not found" >&2; exit 1; }
-          grep -Eq '^Pkg.Revision[[:space:]]*=[[:space:]]*27([.]|$)' "${ndk_dir}/source.properties" || {
-            echo "Android NDK 27 is required" >&2
+          [ "${ANDROID_NDK_HOME}" = "${ANDROID_HOME}/ndk/27.2.12479018" ] || {
+            echo "ANDROID_NDK_HOME must point to the installed NDK 27.2.12479018" >&2
             exit 1
           }
-          echo "ANDROID_NDK_HOME=${ndk_dir}" >> "${GITHUB_ENV}"
+          [ "${CC}" = "${RUNNER_TEMP}/zig-host-cc" ] || {
+            echo "CC must point to the pinned Zig host wrapper" >&2
+            exit 1
+          }
+          [ "${CXX}" = "${RUNNER_TEMP}/zig-host-cxx" ] || {
+            echo "CXX must point to the pinned Zig host wrapper" >&2
+            exit 1
+          }
+          [ "${ZIG_HOST_LD}" = "${RUNNER_TEMP}/zig-host-ld" ] || {
+            echo "ZIG_HOST_LD must point to the pinned Zig host wrapper" >&2
+            exit 1
+          }
+          [ -x "${CC}" ] || { echo "CC is not executable: ${CC}" >&2; exit 1; }
+          [ -x "${CXX}" ] || { echo "CXX is not executable: ${CXX}" >&2; exit 1; }
+          [ -x "${ZIG_HOST_AR}" ] || { echo "ZIG_HOST_AR is not executable: ${ZIG_HOST_AR}" >&2; exit 1; }
+          [ -x "${ZIG_HOST_RANLIB}" ] || { echo "ZIG_HOST_RANLIB is not executable: ${ZIG_HOST_RANLIB}" >&2; exit 1; }
+          [ -x "${ZIG_HOST_LD}" ] || { echo "ZIG_HOST_LD is not executable: ${ZIG_HOST_LD}" >&2; exit 1; }
+          "${ZIG_HOST_LD}" --version >/dev/null || { echo "ZIG_HOST_LD does not support --version" >&2; exit 1; }
+          "${ZIG_HOST_LD}" --help >/dev/null || { echo "ZIG_HOST_LD does not support --help" >&2; exit 1; }
+          grep -Eq '^Pkg.Revision[[:space:]]*=[[:space:]]*27\.2\.12479018([[:space:]]|$)' "${ANDROID_NDK_HOME}/source.properties" || {
+            echo "Android NDK 27.2.12479018 is required at ${ANDROID_NDK_HOME}" >&2
+            exit 1
+          }
+          [ -d "${ANDROID_HOME}/platforms/android-34" ] || { echo "Android platform 34 is not installed" >&2; exit 1; }
+          [ -d "${ANDROID_HOME}/build-tools/34.0.0" ] || { echo "Android build-tools 34.0.0 are not installed" >&2; exit 1; }
+          cmake --version | sed -n '1p' | grep -Fq 'cmake version 3.22.' || { echo "SDK CMake 3.22.1 is required" >&2; exit 1; }
+          ninja --version >/dev/null || { echo "SDK Ninja is not executable" >&2; exit 1; }
+          doxygen_version="$(doxygen --version)"
+          [[ "${doxygen_version}" == 1.9.8* ]] || { echo "Doxygen 1.9.8 is required, found ${doxygen_version}" >&2; exit 1; }
+          [ "$(meson --version)" = '1.5.2' ] || { echo "Meson 1.5.2 is required, found $(meson --version)" >&2; exit 1; }
+          make --version | sed -n '1p' | grep -Fq 'GNU Make 4.4.1' || { echo "GNU Make 4.4.1 is required" >&2; exit 1; }
           python3 -c 'import pystache, six'
 
       - name: Build and stage release
