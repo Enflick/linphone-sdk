@@ -27,10 +27,12 @@
 #include "mediastreamer2/msfilerec.h"
 #include "mediastreamer2/msfilter.h"
 #include "mediastreamer2/msinterfaces.h"
+#include "mediastreamer2/msqueue.h"
 #include "mediastreamer2/msutils.h"
 #include "mediastreamer2_tester.h"
 #include "mediastreamer2_tester_private.h"
 #include "ortp/port.h"
+#include <string.h>
 
 #ifdef ENABLE_WEBRTC_AEC
 extern void libmswebrtc_init(MSFactory *factory);
@@ -578,6 +580,28 @@ end:
 	return aec_done;
 }
 
+static mblk_t *create_audio_frame(const uint8_t *bytes, size_t size) {
+	mblk_t *frame = allocb(size, 0);
+	BC_ASSERT_PTR_NOT_NULL(frame);
+	if (frame != NULL) {
+		memcpy(frame->b_wptr, bytes, size);
+		frame->b_wptr += size;
+	}
+	return frame;
+}
+
+static void assert_forwarded_frame(const uint8_t *expected_bytes,
+                                   size_t expected_size,
+                                   mblk_t *expected_frame,
+                                   mblk_t *actual_frame) {
+	BC_ASSERT_PTR_NOT_NULL(actual_frame);
+	if (actual_frame == NULL) return;
+
+	BC_ASSERT_TRUE(actual_frame == expected_frame);
+	BC_ASSERT_EQUAL((int)msgdsize(actual_frame), (int)expected_size, int, "%d");
+	BC_ASSERT_TRUE(memcmp(actual_frame->b_rptr, expected_bytes, expected_size) == 0);
+}
+
 static void near_end_single_talk(void) {
 	aec_test_config config;
 	init_config(&config);
@@ -825,6 +849,78 @@ static void simple_talk_with_missing_packets(void) {
 	uninit_config(&config);
 }
 
+static void bypass_mode_forwards_render_and_capture_frames(void) {
+	MSFilterDesc *ec_desc = ms_factory_lookup_filter_by_name(msFactory, "MSWebRTCAEC");
+	MSFilter *aec = NULL;
+	MSQueue render_input;
+	MSQueue capture_input;
+	MSQueue render_output;
+	MSQueue capture_output;
+	const uint8_t render_bytes[] = {0x00, 0x01, 0x10, 0x11, 0x20, 0x21, 0x30, 0x31};
+	const uint8_t capture_bytes[] = {0x7f, 0x6f, 0x5f, 0x4f, 0x3f, 0x2f, 0x1f, 0x0f};
+	mblk_t *render_frame = NULL;
+	mblk_t *capture_frame = NULL;
+	mblk_t *render_result = NULL;
+	mblk_t *capture_result = NULL;
+	bool_t bypass_mode = TRUE;
+	bool_t bypass_after_preprocess = FALSE;
+
+	BC_ASSERT_PTR_NOT_NULL(ec_desc);
+	if (ec_desc == NULL) return;
+
+	aec = ms_factory_create_filter_from_desc(msFactory, ec_desc);
+	BC_ASSERT_PTR_NOT_NULL(aec);
+	if (aec == NULL) return;
+
+	ms_tester_create_ticker();
+	ms_queue_init(&render_input);
+	ms_queue_init(&capture_input);
+	ms_queue_init(&render_output);
+	ms_queue_init(&capture_output);
+	aec->inputs[0] = &render_input;
+	aec->inputs[1] = &capture_input;
+	aec->outputs[0] = &render_output;
+	aec->outputs[1] = &capture_output;
+
+	ms_filter_call_method(aec, MS_ECHO_CANCELLER_SET_BYPASS_MODE, &bypass_mode);
+	ms_filter_preprocess(aec, ms_tester_ticker);
+	ms_filter_call_method(aec, MS_ECHO_CANCELLER_GET_BYPASS_MODE, &bypass_after_preprocess);
+	BC_ASSERT_TRUE(bypass_after_preprocess == TRUE);
+
+	render_frame = create_audio_frame(render_bytes, sizeof(render_bytes));
+	capture_frame = create_audio_frame(capture_bytes, sizeof(capture_bytes));
+	if ((render_frame == NULL) || (capture_frame == NULL)) goto end;
+
+	ms_queue_put(aec->inputs[0], render_frame);
+	ms_queue_put(aec->inputs[1], capture_frame);
+
+	ms_filter_process(aec);
+
+	render_result = ms_queue_get(aec->outputs[0]);
+	capture_result = ms_queue_get(aec->outputs[1]);
+	assert_forwarded_frame(render_bytes, sizeof(render_bytes), render_frame, render_result);
+	assert_forwarded_frame(capture_bytes, sizeof(capture_bytes), capture_frame, capture_result);
+	BC_ASSERT_PTR_NULL(ms_queue_get(aec->outputs[0]));
+	BC_ASSERT_PTR_NULL(ms_queue_get(aec->outputs[1]));
+
+end:
+	if (aec != NULL) ms_filter_postprocess(aec);
+	if (render_result != NULL) freemsg(render_result);
+	if (capture_result != NULL) freemsg(capture_result);
+	if ((render_frame != NULL) && (render_frame != render_result)) freemsg(render_frame);
+	if ((capture_frame != NULL) && (capture_frame != capture_result)) freemsg(capture_frame);
+	ms_queue_flush(&render_input);
+	ms_queue_flush(&capture_input);
+	ms_queue_flush(&render_output);
+	ms_queue_flush(&capture_output);
+	ms_queue_destroy(&render_input);
+	ms_queue_destroy(&capture_input);
+	ms_queue_destroy(&render_output);
+	ms_queue_destroy(&capture_output);
+	ms_tester_destroy_ticker();
+	if (aec != NULL) ms_filter_destroy(aec);
+}
+
 static test_t tests[] = {TEST_NO_TAG("Simple talk", simple_talk),
                          TEST_NO_TAG("Simple talk 600ms delay", simple_talk_600ms),
                          TEST_NO_TAG("Double talk", double_talk),
@@ -835,7 +931,9 @@ static test_t tests[] = {TEST_NO_TAG("Simple talk", simple_talk),
                          TEST_NO_TAG("Simple talk 48000 Hz", simple_talk_48000Hz),
                          TEST_NO_TAG("Simple talk with delay change", simple_talk_with_delay_change),
                          TEST_NO_TAG("Simple talk without initial delay", simple_talk_without_initial_delay),
-                         TEST_NO_TAG("Simple talk with missing packets", simple_talk_with_missing_packets)};
+                         TEST_NO_TAG("Simple talk with missing packets", simple_talk_with_missing_packets),
+                         TEST_NO_TAG("Bypass mode forwards render and capture frames",
+                                     bypass_mode_forwards_render_and_capture_frames)};
 
 test_suite_t aec3_test_suite = {
     "AEC3", tester_before_all, tester_after_all, NULL, NULL, sizeof(tests) / sizeof(tests[0]), tests, 0};
