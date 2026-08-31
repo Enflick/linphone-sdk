@@ -25,6 +25,14 @@ namespace webrtc {
 
 enum class Aec3Optimization { kNone, kSse2, kAvx2, kNeon };
 
+struct Aec3CpuFeatures {
+  bool is_x86_family;
+  bool has_sse2;
+  bool has_avx2;
+  bool has_fma3;
+  bool has_neon;
+};
+
 constexpr int kNumBlocksPerSecond = 250;
 
 constexpr int kMetricsReportingIntervalBlocks = 10 * kNumBlocksPerSecond;
@@ -82,6 +90,7 @@ constexpr size_t GetRenderDelayBufferSize(size_t down_sampling_factor,
 }
 
 // Detects what kind of optimizations to use for the code.
+Aec3Optimization SelectOptimization(const Aec3CpuFeatures& features);
 Aec3Optimization DetectOptimization();
 
 // Computes the log2 of the input in a fast an approximate manner.
