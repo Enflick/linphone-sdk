@@ -24,6 +24,7 @@
 #include "mediastreamer2/mscommon.h"
 #include "mediastreamer2/msqueue.h"
 #include "mediastreamer2/msticker.h"
+#include "mswebrtc_cpu_policy.h"
 #include "ortp/str_utils.h"
 #include <cstddef>
 #include <cstdint>
@@ -71,6 +72,18 @@ void MSWebrtcAEC3::preprocess() {
 		         this, mSampleRateInHz);
 		mBypassMode = true;
 		ms_error("Entering bypass mode");
+		return;
+	}
+
+	if (mBypassMode) {
+		ms_message("WebRTCAEC[%p]: software AEC bypass was requested before preprocessing", this);
+		return;
+	}
+
+	if (mswebrtc::GetSoftwareAecPolicy() == mswebrtc::SoftwareAecPolicy::kBypassRequired) {
+		mBypassMode = true;
+		ms_warning("WebRTCAEC[%p]: bypassing software AEC on x86 because AVX2/FMA3 runtime support is unavailable",
+		           this);
 		return;
 	}
 

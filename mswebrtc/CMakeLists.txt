@@ -156,9 +156,10 @@ set(WEBRTC_SRC
 )
 
 if(ENABLE_AEC)
-	list(APPEND WEBRTC_SRC 
+	list(APPEND WEBRTC_SRC
 		aec3.cc
 		mswebrtc_aec3.cc
+		mswebrtc_cpu_policy.cc
 		${CMAKE_CURRENT_SOURCE_DIR}/api/audio/echo_canceller3_config.cc
 		${AUDIO_PROCESSING_DIR}/logging/apm_data_dumper.cc
 		${AUDIO_PROCESSING_DIR}/audio_buffer.cc
@@ -346,7 +347,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(mswebrtc PRIVATE Threads::Threads)
 
 if(ENABLE_AEC)
-	if(COMPILER_IS_CLANG)
+	if(COMPILER_SUPPORTS_AVX2)
 		target_compile_definitions(mswebrtc PRIVATE WEBRTC_ENABLE_AVX2)
 	endif()
 	if(COMPILER_SUPPORTS_ARMV8)
@@ -355,15 +356,6 @@ if(ENABLE_AEC)
 	if(COMPILER_SUPPORTS_NEON)
 		target_compile_options(mswebrtc PRIVATE -mfpu=neon)
 	endif()
-	if(COMPILER_SUPPORTS_AVX2)
-		if(MSVC)
-			target_compile_options(mswebrtc PRIVATE "/arch:AVX2")
-		else()
-			target_compile_options(mswebrtc PRIVATE -mavx2)
-			target_compile_options(mswebrtc PRIVATE -mfma)
-		endif()
-	endif()
-
 	if(MSVC)
 		target_compile_definitions(mswebrtc PRIVATE NOMINMAX)
 		if(COMPILER_SUPPORTS_SSE2)
@@ -373,6 +365,30 @@ if(ENABLE_AEC)
 		if(COMPILER_SUPPORTS_SSE2)
 			target_compile_options(mswebrtc PRIVATE -msse2)
 		endif()
+	endif()
+endif()
+
+if(ENABLE_AEC AND COMPILER_SUPPORTS_AVX2)
+	if(MSVC)
+		set_source_files_properties(
+			${CMAKE_CURRENT_SOURCE_DIR}/common_audio/resampler/sinc_resampler_avx2.cc
+			${AEC3_SRC_DIR}/adaptive_fir_filter_avx2.cc
+			${AEC3_SRC_DIR}/adaptive_fir_filter_erl_avx2.cc
+			${AEC3_SRC_DIR}/fft_data_avx2.cc
+			${AEC3_SRC_DIR}/matched_filter_avx2.cc
+			${AEC3_SRC_DIR}/vector_math_avx2.cc
+			PROPERTIES COMPILE_OPTIONS "/arch:AVX2"
+		)
+	else()
+		set_source_files_properties(
+			${CMAKE_CURRENT_SOURCE_DIR}/common_audio/resampler/sinc_resampler_avx2.cc
+			${AEC3_SRC_DIR}/adaptive_fir_filter_avx2.cc
+			${AEC3_SRC_DIR}/adaptive_fir_filter_erl_avx2.cc
+			${AEC3_SRC_DIR}/fft_data_avx2.cc
+			${AEC3_SRC_DIR}/matched_filter_avx2.cc
+			${AEC3_SRC_DIR}/vector_math_avx2.cc
+			PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma"
+		)
 	endif()
 endif()
 
