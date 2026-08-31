@@ -913,10 +913,6 @@ end:
 	ms_queue_flush(&capture_input);
 	ms_queue_flush(&render_output);
 	ms_queue_flush(&capture_output);
-	ms_queue_destroy(&render_input);
-	ms_queue_destroy(&capture_input);
-	ms_queue_destroy(&render_output);
-	ms_queue_destroy(&capture_output);
 	ms_tester_destroy_ticker();
 	if (aec != NULL) ms_filter_destroy(aec);
 }

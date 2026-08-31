@@ -108,7 +108,6 @@ compile_fixture() {
   local link_log="${BUILD_DIR}/link.log"
 
   if ! c++ -std=c++17 -Wall -Wextra -Werror \
-      -I"${REPO_ROOT}" \
       -I"${REPO_ROOT}/mswebrtc" \
       -c "${FIXTURE}" \
       -o "${object_file}" \
@@ -119,7 +118,6 @@ compile_fixture() {
   fi
 
   if ! c++ -std=c++17 -Wall -Wextra -Werror \
-      -I"${REPO_ROOT}" \
       -I"${REPO_ROOT}/mswebrtc" \
       "${FIXTURE}" \
       "${EXPECTED_IMPL}" \

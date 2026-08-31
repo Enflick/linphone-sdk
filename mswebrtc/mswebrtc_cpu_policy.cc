@@ -1,4 +1,4 @@
-#include "mswebrtc/mswebrtc_cpu_policy.h"
+#include "mswebrtc_cpu_policy.h"
 
 namespace mswebrtc {
 
