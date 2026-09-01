@@ -25,6 +25,25 @@ SKIP_BUILD=false
 PUBLISH_STAGED=false
 
 SWIFT_PACKAGE_NAME="linphone-sdk-swift-ios"
+# Production frameworks published to SwiftPM and Nexus. Runtime closure validation below rejects
+# any newly linked framework until it is deliberately added here.
+ALLOWED_TARGETS=(
+  bctoolbox
+  bctoolbox-ios
+  belcard
+  belle-sip
+  belr
+  lime
+  linphone
+  mbedcrypto
+  mbedtls
+  mbedx509
+  mediastreamer2
+  msamr
+  mscodec2
+  msopenh264
+  ortp
+)
 
 declare -a EXTRA_CMAKE_ARGS=()
 declare -a UPLOAD_FILES=()
@@ -235,52 +254,17 @@ write_sidecar() {
   printf '%s  %s\n' "$(sha256_file "$file")" "$(basename "$file")" > "${file}.sha256"
 }
 
-is_test_only_target_name() {
-  local candidate=""
-  candidate="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  case "$candidate" in
-    *tester)
-      return 0
-      ;;
-  esac
-  return 1
-}
-
-load_target_names_from_generated_package() {
-  local package_file="${SWIFT_PACKAGE_DIR}/Package.swift"
+load_allowed_target_names() {
   local target=""
-  local raw_target_count=0
   local zip_count=""
-  local selected_zip_count=0
 
-  [ -f "${package_file}" ] || die "missing generated Swift package manifest ${package_file}"
-  TARGET_NAMES=()
-  while IFS= read -r target; do
-    [ -n "${target}" ] || continue
-    raw_target_count=$((raw_target_count + 1))
-    if is_test_only_target_name "${target}"; then
-      continue
-    fi
-    TARGET_NAMES+=("${target}")
-  done < <(python3 - "${package_file}" <<'PY'
-import re
-import sys
-
-content = open(sys.argv[1], "r", encoding="utf-8").read()
-for name in re.findall(r'\.binaryTarget\(\s*name:\s*"([^"]+)"', content, re.S):
-    print(name)
-PY
-)
-
-  [ "${raw_target_count}" -gt 0 ] || die "no binary targets found in ${package_file}"
-  [ "${#TARGET_NAMES[@]}" -gt 0 ] || die "no production binary targets remain in ${package_file} after excluding test-only frameworks"
+  TARGET_NAMES=("${ALLOWED_TARGETS[@]}")
   zip_count="$(find "${XCFRAMEWORK_DIR}" -maxdepth 1 -type f -name '*.xcframework.zip' | wc -l | tr -d ' ')"
   for target in "${TARGET_NAMES[@]}"; do
     [ -f "${XCFRAMEWORK_DIR}/${target}.xcframework.zip" ] || die "missing expected artifact ${XCFRAMEWORK_DIR}/${target}.xcframework.zip"
-    selected_zip_count=$((selected_zip_count + 1))
   done
-  [ "${zip_count}" -ge "${selected_zip_count}" ] \
-    || die "generated Swift package selects ${selected_zip_count} production targets but only ${zip_count} XCFramework ZIPs were built"
+  [ "${zip_count}" -ge "${#TARGET_NAMES[@]}" ] \
+    || die "expected at least ${#TARGET_NAMES[@]} XCFramework ZIPs, found ${zip_count}"
 }
 
 target_exists() {
@@ -470,7 +454,7 @@ verify_generated_targets() {
   [ -d "$SWIFT_PACKAGE_DIR" ] || die "missing SwiftPM output ${SWIFT_PACKAGE_DIR}"
   [ -d "$XCFRAMEWORK_DIR" ] || die "missing XCFramework directory ${XCFRAMEWORK_DIR}"
   [ "${#zip_files[@]}" -gt 0 ] || die "expected at least one XCFramework ZIP in ${XCFRAMEWORK_DIR}"
-  load_target_names_from_generated_package
+  load_allowed_target_names
   verify_runtime_dependency_closure
 
   for target in "${TARGET_NAMES[@]}"; do

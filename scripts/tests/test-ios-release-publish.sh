@@ -247,60 +247,12 @@ set -e
 
 MISSING_RUNTIME_BUILD_DIR="${TEST_ROOT}/missing-runtime-build"
 cp -R "${BUILD_DIR}" "${MISSING_RUNTIME_BUILD_DIR}"
-{
-  cat <<'EOF'
-// swift-tools-version:5.9
-import PackageDescription
-
-let package = Package(
-    name: "linphonesw",
-    platforms: [
-        .iOS(.v13)
-    ],
-    products: [
-        .library(
-            name: "linphonesw",
-            targets: ["linphonesw"]
-        )
-    ],
-    targets: [
+cat >> "${MISSING_RUNTIME_BUILD_DIR}/linphone-sdk/apple-darwin/XCFrameworks/linphone.xcframework/ios-arm64/linphone.framework/linphone.deps" <<'EOF'
+@rpath/futurecodec.framework/futurecodec
 EOF
-  for target in "${EXPECTED_TARGETS[@]}"; do
-    [ "${target}" = "lime" ] && continue
-    cat <<EOF
-        .binaryTarget(
-            name: "${target}",
-            url: "https://invalid.example/linphone-sdk-swift-ios-5.5.12+6308ecb470/XCFrameworks/${target}.xcframework.zip",
-            checksum: "fixture-${target}"
-        ),
+cat >> "${MISSING_RUNTIME_BUILD_DIR}/linphone-sdk/apple-darwin/XCFrameworks/linphone.xcframework/ios-arm64_x86_64-simulator/linphone.framework/linphone.deps" <<'EOF'
+@rpath/futurecodec.framework/futurecodec
 EOF
-  done
-  printf '        .target(\n'
-  printf '            name: "linphonexcframeworks",\n'
-  printf '            dependencies: ['
-  first=true
-  for target in "${EXPECTED_TARGETS[@]}"; do
-    [ "${target}" = "lime" ] && continue
-    if $first; then
-      first=false
-    else
-      printf ', '
-    fi
-    printf '"%s"' "${target}"
-  done
-  cat <<'EOF'
-]
-        ),
-        .target(
-            name: "linphonesw",
-            dependencies: ["linphonexcframeworks"]
-        )
-    ]
-)
-EOF
-} > "${MISSING_RUNTIME_BUILD_DIR}/linphone-sdk-swift-ios/Package.swift"
-rm "${MISSING_RUNTIME_BUILD_DIR}/linphone-sdk-swift-ios/XCFrameworks/lime.xcframework.zip"
-rm -rf "${MISSING_RUNTIME_BUILD_DIR}/linphone-sdk/apple-darwin/XCFrameworks/lime.xcframework"
 set +e
 OTOOL_BIN="${OTOOL_STUB}" bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
   --skip-build \
@@ -457,11 +409,14 @@ grep -q "release_version=${RELEASE_VERSION}" "${BUILD_ONLY_STAGING_DIR}/release-
 grep -q '^target_count=15$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/bctoolbox.xcframework.zip" \
   "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
+grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/belcard.xcframework.zip" \
+  "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/lime.xcframework.zip" \
   "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 grep -q "${BASE_URL}/repository/ios-release/LinphoneSDK/${RELEASE_VERSION}/mbedtls.xcframework.zip" \
   "${BUILD_ONLY_STAGING_DIR}/source-bundle/linphone-sdk-swift-ios/Package.swift"
 grep -q '^target=lime$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
+grep -q '^target=belcard$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 grep -q '^target=mbedtls$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 grep -q '^runtime_dependency=linphone|ios-arm64|lime$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
 grep -q '^runtime_dependency=bctoolbox|ios-arm64|mbedtls$' "${BUILD_ONLY_STAGING_DIR}/release-manifest.txt"
