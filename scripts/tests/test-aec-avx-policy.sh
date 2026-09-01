@@ -9,6 +9,9 @@ CMAKE_FILE="${REPO_ROOT}/mswebrtc/CMakeLists.txt"
 AEC_IMPL_FILE="${REPO_ROOT}/mswebrtc/mswebrtc_aec3.cc"
 EXPECTED_HEADER="${REPO_ROOT}/mswebrtc/mswebrtc_cpu_policy.h"
 EXPECTED_IMPL="${REPO_ROOT}/mswebrtc/mswebrtc_cpu_policy.cc"
+AEC3_COMMON_HEADER="${REPO_ROOT}/mswebrtc/modules/audio_processing/aec3/aec3_common.h"
+AEC3_COMMON_IMPL="${REPO_ROOT}/mswebrtc/modules/audio_processing/aec3/aec3_common.cc"
+CPU_FEATURES_IMPL="${REPO_ROOT}/mswebrtc/system_wrappers/source/cpu_features.cc"
 TEST_ROOT="$(mktemp -d)"
 BUILD_DIR="${TEST_ROOT}/build"
 
@@ -71,33 +74,11 @@ assert_scoped_avx2_sources() {
   fi
 }
 
-assert_policy_precedes_echo_canceller_construction() {
-  local policy_line
-  local construct_line
-  local guard_block
-
-  policy_line="$(grep -n 'GetSoftwareAecPolicy()' "${AEC_IMPL_FILE}" | head -1 | cut -d: -f1)"
-  construct_line="$(grep -n 'std::make_unique<webrtc::EchoCanceller3>' "${AEC_IMPL_FILE}" | head -1 | cut -d: -f1)"
-
-  if [ -z "${policy_line}" ]; then
-    record_failure "MSWebRTCAEC preprocess does not call GetSoftwareAecPolicy()"
-    return
-  fi
-  if [ -z "${construct_line}" ]; then
-    record_failure "MSWebRTCAEC preprocess no longer constructs EchoCanceller3 where expected"
-    return
-  fi
-  if [ "${policy_line}" -ge "${construct_line}" ]; then
-    record_failure "CPU policy check must occur before EchoCanceller3 construction"
-    return
-  fi
-
-  guard_block="$(sed -n "${policy_line},$((construct_line - 1))p" "${AEC_IMPL_FILE}")"
-  if ! grep -Fq 'mBypassMode = true;' <<<"${guard_block}"; then
-    record_failure "CPU policy guard does not force bypass before EchoCanceller3 construction"
-  fi
-  if ! grep -Eq '^.*return;$' <<<"${guard_block}"; then
-    record_failure "CPU policy guard does not return before EchoCanceller3 construction"
+assert_i386_cpuid_subleaf_is_zeroed() {
+  local zeroed_ecx_count
+  zeroed_ecx_count="$(grep -Fc '"c"(0)' "${CPU_FEATURES_IMPL}" || true)"
+  if [ "${zeroed_ecx_count}" -lt 2 ]; then
+    record_failure "i386 PIC CPUID does not explicitly select subleaf zero"
   fi
 }
 
@@ -112,18 +93,21 @@ compile_fixture() {
       -c "${FIXTURE}" \
       -o "${object_file}" \
       >"${compile_log}" 2>&1; then
-    record_failure "CPU-policy fixture does not compile. Expected seam files: mswebrtc/mswebrtc_cpu_policy.h and GetSoftwareAecPolicy(bool, query)"
+    record_failure "AEC3 optimization fixture does not compile"
     sed -n '1,40p' "${compile_log}" >&2
     return
   fi
 
   if ! c++ -std=c++17 -Wall -Wextra -Werror \
+      -DNDEBUG \
       -I"${REPO_ROOT}/mswebrtc" \
+      -I"${REPO_ROOT}/mswebrtc/third_party/abseil-cpp" \
       "${FIXTURE}" \
-      "${EXPECTED_IMPL}" \
+      "${AEC3_COMMON_IMPL}" \
+      "${CPU_FEATURES_IMPL}" \
       -o "${binary_file}" \
       >"${link_log}" 2>&1; then
-    record_failure "CPU-policy fixture does not link against ${EXPECTED_IMPL}"
+    record_failure "AEC3 optimization fixture does not link"
     sed -n '1,40p' "${link_log}" >&2
     return
   fi
@@ -135,14 +119,18 @@ compile_fixture() {
 
 compile_fixture
 
-if [ ! -f "${EXPECTED_HEADER}" ]; then
-  record_failure "Missing expected CPU-policy header ${EXPECTED_HEADER}"
+if grep -Fq 'GetSoftwareAecPolicy()' "${AEC_IMPL_FILE}"; then
+  record_failure "MSWebRTCAEC still bypasses before AEC3 runtime dispatch"
 fi
-if [ ! -f "${EXPECTED_IMPL}" ]; then
-  record_failure "Missing expected CPU-policy implementation ${EXPECTED_IMPL}"
+if grep -Fq 'mswebrtc_cpu_policy.cc' "${CMAKE_FILE}"; then
+  record_failure "Obsolete pre-AEC3 bypass policy is still built"
 fi
-
-assert_policy_precedes_echo_canceller_construction
+if [ -f "${EXPECTED_HEADER}" ] || [ -f "${EXPECTED_IMPL}" ]; then
+  record_failure "Obsolete pre-AEC3 bypass policy files are still present"
+fi
+if ! grep -Fq 'GetCPUInfo(kFMA3)' "${AEC3_COMMON_IMPL}"; then
+  record_failure "AEC3 AVX2 dispatch is not gated on FMA3"
+fi
 
 assert_absent 'target_compile_options(mswebrtc PRIVATE "/arch:AVX2")' \
   'mswebrtc target still applies /arch:AVX2 globally'
@@ -152,6 +140,7 @@ assert_absent 'target_compile_options(mswebrtc PRIVATE -mfma)' \
   'mswebrtc target still applies -mfma globally'
 
 assert_scoped_avx2_sources
+assert_i386_cpuid_subleaf_is_zeroed
 
 if [ "${#failures[@]}" -ne 0 ]; then
   printf '\nRED: %d contract failure(s) detected.\n' "${#failures[@]}" >&2

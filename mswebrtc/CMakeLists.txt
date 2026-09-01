@@ -159,7 +159,6 @@ if(ENABLE_AEC)
 	list(APPEND WEBRTC_SRC
 		aec3.cc
 		mswebrtc_aec3.cc
-		mswebrtc_cpu_policy.cc
 		${CMAKE_CURRENT_SOURCE_DIR}/api/audio/echo_canceller3_config.cc
 		${AUDIO_PROCESSING_DIR}/logging/apm_data_dumper.cc
 		${AUDIO_PROCESSING_DIR}/audio_buffer.cc

@@ -18,6 +18,22 @@ namespace webrtc {
 // List of features in x86.
 typedef enum { kSSE2, kSSE3, kAVX2, kFMA3 } CPUFeature;
 
+struct X86CpuFeatureState {
+  bool has_sse2;
+  bool has_sse3;
+  bool has_avx;
+  bool has_xsave;
+  bool has_osxsave;
+  bool has_xmm_state;
+  bool has_ymm_state;
+  bool has_avx2;
+  bool has_bmi2;
+  bool has_fma3;
+};
+
+// XGETBV is only valid after CPUID reports AVX, XSAVE, and OSXSAVE.
+bool ShouldReadX86Xcr0(const X86CpuFeatureState& state);
+
 // List of features in ARM.
 enum {
   kCPUFeatureARMv7 = (1 << 0),
@@ -28,6 +44,9 @@ enum {
 
 // Returns true if the CPU supports the feature.
 int GetCPUInfo(CPUFeature feature);
+
+// Evaluates an injected x86 CPUID/OS state. Intended for deterministic tests.
+int GetCPUInfo(CPUFeature feature, const X86CpuFeatureState& state);
 
 // No CPU feature is available => straight C path.
 int GetCPUInfoNoASM(CPUFeature feature);

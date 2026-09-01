@@ -19,6 +19,33 @@
 
 namespace webrtc {
 
+bool ShouldReadX86Xcr0(const X86CpuFeatureState& state) {
+  return state.has_avx && state.has_xsave && state.has_osxsave;
+}
+
+namespace {
+
+bool HasUsableAvxState(const X86CpuFeatureState& state) {
+  return state.has_avx && state.has_xsave && state.has_osxsave &&
+         state.has_xmm_state && state.has_ymm_state;
+}
+
+}  // namespace
+
+int GetCPUInfo(CPUFeature feature, const X86CpuFeatureState& state) {
+  switch (feature) {
+    case kSSE2:
+      return state.has_sse2;
+    case kSSE3:
+      return state.has_sse3;
+    case kAVX2:
+      return HasUsableAvxState(state) && state.has_avx2 && state.has_bmi2;
+    case kFMA3:
+      return HasUsableAvxState(state) && state.has_fma3;
+  }
+  return 0;
+}
+
 // No CPU feature is available => straight C path.
 int GetCPUInfoNoASM(CPUFeature feature) {
   (void)feature;
@@ -52,7 +79,7 @@ static inline void __cpuid(int cpu_info[4], int info_type) {
       "xchg %%edi, %%ebx\n"
       : "=a"(cpu_info[0]), "=D"(cpu_info[1]), "=c"(cpu_info[2]),
         "=d"(cpu_info[3])
-      : "a"(info_type));
+      : "a"(info_type), "c"(0));
 }
 #else
 static inline void __cpuid(int cpu_info[4], int info_type) {
@@ -70,40 +97,38 @@ static inline void __cpuid(int cpu_info[4], int info_type) {
 int GetCPUInfo(CPUFeature feature) {
   int cpu_info[4];
   __cpuid(cpu_info, 1);
-  if (feature == kSSE2) {
-    return 0 != (cpu_info[3] & 0x04000000);
-  }
-  if (feature == kSSE3) {
-    return 0 != (cpu_info[2] & 0x00000001);
+  X86CpuFeatureState state = {};
+  state.has_sse2 = (cpu_info[3] & 0x04000000) != 0;
+  state.has_sse3 = (cpu_info[2] & 0x00000001) != 0;
+
+  if (feature == kSSE2 || feature == kSSE3) {
+    return GetCPUInfo(feature, state);
   }
 #if defined(WEBRTC_ENABLE_AVX2)
-  if (feature == kAVX2) {
+  if (feature == kAVX2 || feature == kFMA3) {
+    state.has_avx = (cpu_info[2] & 0x10000000) != 0;
+    state.has_xsave = (cpu_info[2] & 0x04000000) != 0;
+    state.has_osxsave = (cpu_info[2] & 0x08000000) != 0;
+    state.has_fma3 = (cpu_info[2] & 0x00001000) != 0;
+
+    if (ShouldReadX86Xcr0(state)) {
+      const uint64_t xcr0 = xgetbv(0);
+      state.has_xmm_state = (xcr0 & 0x00000002) != 0;
+      state.has_ymm_state = (xcr0 & 0x00000004) != 0;
+    }
+
     int cpu_info7[4];
     __cpuid(cpu_info7, 0);
     int num_ids = cpu_info7[0];
-    if (num_ids < 7) {
-      return 0;
+    if (num_ids >= 7) {
+      __cpuid(cpu_info7, 7);
+      state.has_avx2 = (cpu_info7[1] & 0x00000020) != 0;
+      state.has_bmi2 = (cpu_info7[1] & 0x00000100) != 0;
     }
-    // Interpret CPU feature information.
-    __cpuid(cpu_info7, 7);
 
-    // AVX instructions can be used when
-    //     a) AVX are supported by the CPU,
-    //     b) XSAVE is supported by the CPU,
-    //     c) XSAVE is enabled by the kernel.
-    // Compiling with MSVC and /arch:AVX2 surprisingly generates BMI2
-    // instructions (see crbug.com/1315519).
-    return (cpu_info[2] & 0x10000000) != 0 /* AVX */ &&
-           (cpu_info[2] & 0x04000000) != 0 /* XSAVE */ &&
-           (cpu_info[2] & 0x08000000) != 0 /* OSXSAVE */ &&
-           (xgetbv(0) & 0x00000006) == 6 /* XSAVE enabled by kernel */ &&
-           (cpu_info7[1] & 0x00000020) != 0 /* AVX2 */ &&
-           (cpu_info7[1] & 0x00000100) != 0 /* BMI2 */;
+    return GetCPUInfo(feature, state);
   }
 #endif  // WEBRTC_ENABLE_AVX2
-  if (feature == kFMA3) {
-    return 0 != (cpu_info[2] & 0x00001000);
-  }
   return 0;
 }
 #else

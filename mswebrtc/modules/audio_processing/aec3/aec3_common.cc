@@ -18,20 +18,34 @@
 
 namespace webrtc {
 
-Aec3Optimization DetectOptimization() {
-#if defined(WEBRTC_ARCH_X86_FAMILY)
-  if (GetCPUInfo(kAVX2) != 0) {
-    return Aec3Optimization::kAvx2;
-  } else if (GetCPUInfo(kSSE2) != 0) {
-    return Aec3Optimization::kSse2;
+Aec3Optimization SelectOptimization(const Aec3CpuFeatures& features) {
+  if (features.is_x86_family) {
+    if (features.has_sse2 && features.has_avx2 && features.has_fma3) {
+      return Aec3Optimization::kAvx2;
+    }
+    if (features.has_sse2) {
+      return Aec3Optimization::kSse2;
+    }
+    return Aec3Optimization::kNone;
   }
+
+  return features.has_neon ? Aec3Optimization::kNeon
+                           : Aec3Optimization::kNone;
+}
+
+Aec3Optimization DetectOptimization() {
+  Aec3CpuFeatures features = {};
+
+#if defined(WEBRTC_ARCH_X86_FAMILY)
+  features.is_x86_family = true;
+  features.has_sse2 = GetCPUInfo(kSSE2) != 0;
+  features.has_avx2 = GetCPUInfo(kAVX2) != 0;
+  features.has_fma3 = features.has_avx2 && GetCPUInfo(kFMA3) != 0;
+#elif defined(WEBRTC_HAS_NEON)
+  features.has_neon = true;
 #endif
 
-#if defined(WEBRTC_HAS_NEON)
-  return Aec3Optimization::kNeon;
-#else
-  return Aec3Optimization::kNone;
-#endif
+  return SelectOptimization(features);
 }
 
 float FastApproxLog2f(const float in) {
