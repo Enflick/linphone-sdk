@@ -493,6 +493,7 @@ void _linphone_account_notify_registration_state_changed(LinphoneAccount *accoun
                                                          LinphoneRegistrationState state,
                                                          const char *message);
 void _linphone_account_notify_conference_information_updated(LinphoneAccount *account, const bctbx_list_t *infos);
+void _linphone_account_notify_ping_result(LinphoneAccount *account, const LinphoneErrorInfo *error_info);
 
 /*alerts*/
 void linphone_core_notify_alert(LinphoneCore *lc, LinphoneAlert *alert);

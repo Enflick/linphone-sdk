@@ -120,6 +120,20 @@ linphone_account_cbs_set_conference_information_updated(LinphoneAccountCbs *cbs,
                                                         LinphoneAccountCbsConferenceInformationUpdatedCb cb);
 
 /**
+ * Gets the ping result callback.
+ * @param cbs #LinphoneAccountCbs object. @notnil
+ * @return The current ping result callback.
+ */
+LINPHONE_PUBLIC LinphoneAccountCbsPingResultCb linphone_account_cbs_get_ping_result(const LinphoneAccountCbs *cbs);
+
+/**
+ * Sets the ping result callback.
+ * @param cbs #LinphoneAccountCbs object. @notnil
+ * @param cb The ping result callback to be used.
+ */
+LINPHONE_PUBLIC void linphone_account_cbs_set_ping_result(LinphoneAccountCbs *cbs, LinphoneAccountCbsPingResultCb cb);
+
+/**
  * @}
  */
 

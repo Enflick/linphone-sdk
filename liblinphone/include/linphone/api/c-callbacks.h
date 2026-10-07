@@ -67,6 +67,16 @@ typedef void (*LinphoneAccountCbsMessageWaitingIndicationChangedCb)(LinphoneAcco
 typedef void (*LinphoneAccountCbsConferenceInformationUpdatedCb)(LinphoneAccount *account, const bctbx_list_t *infos);
 
 /**
+ * Callback for notifying the result of a ping sent with linphone_account_send_ping().
+ * The protocol code of error_info is the response's status code. Any response, whatever its status code, means the
+ * connection is up. A protocol code of 0 means no response came back: the reason is then #LinphoneReasonIOError (the
+ * connection failed) or #LinphoneReasonNotAnswered (the request timed out).
+ * @param account #LinphoneAccount object that sent the ping. @notnil
+ * @param error_info The #LinphoneErrorInfo of the result. @notnil
+ */
+typedef void (*LinphoneAccountCbsPingResultCb)(LinphoneAccount *account, const LinphoneErrorInfo *error_info);
+
+/**
  * @}
  **/
 
