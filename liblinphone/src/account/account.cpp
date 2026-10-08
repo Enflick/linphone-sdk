@@ -887,7 +887,9 @@ void Account::onPingResult(SalPingOp *op) {
 	// Cleared before notifying, so the app can send another ping from the callback.
 	mPingOp = nullptr;
 	LinphoneErrorInfo *ei = linphone_error_info_new();
-	linphone_error_info_from_sal_op(ei, op);
+	// Not linphone_error_info_from_sal_op(): for a 2xx it reports the Reason header's info instead, so a 200 without
+	// one would come out as protocol code 0, which means no response.
+	linphone_error_info_from_sal(ei, op->getErrorInfo());
 	lInfo() << *this << " ping result: " << linphone_error_info_get_protocol_code(ei) << " ["
 	        << linphone_reason_to_string(linphone_error_info_get_reason(ei)) << "]";
 	_linphone_account_notify_ping_result(toC(), ei);

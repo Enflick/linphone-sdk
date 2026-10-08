@@ -787,6 +787,7 @@ LinphonePlayerCbs *linphone_player_cbs_new(void);
 char *linphone_timestamp_to_rfc3339_string(time_t timestamp);
 
 void linphone_error_info_from_sal_op(LinphoneErrorInfo *ei, const LinphonePrivate::SalOp *op);
+void linphone_error_info_from_sal(LinphoneErrorInfo *ei, const SalErrorInfo *sei);
 
 void payload_type_set_enable(OrtpPayloadType *pt, bool_t value);
 bool_t payload_type_enabled(const OrtpPayloadType *pt);
