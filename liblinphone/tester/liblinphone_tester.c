@@ -651,6 +651,7 @@ void liblinphone_tester_add_suites(void) {
 	bc_tester_add_suite(&sync_test_suite);
 	bc_tester_add_suite(&bearer_auth_test_suite);
 	bc_tester_add_suite(&call_twisted_cases_suite);
+	bc_tester_add_suite(&account_ping_test_suite);
 	bc_tester_add_suite(&http_client_test_suite);
 	bc_tester_add_suite(&turn_server_test_suite);
 	bc_tester_add_suite(&dtmf_test_suite);

@@ -231,10 +231,11 @@ LINPHONE_PUBLIC void linphone_account_refresh_register(LinphoneAccount *account)
 LINPHONE_PUBLIC void linphone_account_pause_register(LinphoneAccount *account);
 
 /**
- * Sends a SIP OPTIONS ping on the connection used by the account's registration, to check that it is still alive.
- * The result is reported once through the ping_result callback of #LinphoneAccountCbs. The ping only probes the
- * registration's existing connection, so if the account isn't registered nothing is sent. A new ping replaces one
- * still in progress, whose result is then not reported.
+ * Sends a SIP OPTIONS ping to the account's proxy, the same next hop as its REGISTER, to check that the connection is
+ * still alive. The result is reported once through the ping_result callback of #LinphoneAccountCbs. Nothing is sent if
+ * the account isn't registered. The ping goes out on the registration's connection while that connection is open; if
+ * the connection was already closed or marked as failed and the registration hasn't caught up yet, a new connection to
+ * the proxy is opened for the ping. A new ping replaces one still in progress, whose result is then not reported.
  * A timeout is only reported when the SIP transaction expires (32 s by default), so apply your own deadline if you need
  * a faster verdict. If the server challenges the ping for credentials, it is authenticated like any other request, and
  * no result is reported while credentials are missing.
