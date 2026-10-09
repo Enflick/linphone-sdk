@@ -267,13 +267,14 @@ static void ping_answered_with_200(void) {
 	BC_ASSERT_EQUAL(fixture.getServer().getOptionsCount(), 1, int, "%d");
 }
 
-static void ping_not_sent_when_not_registered(void) {
+// Registration isn't required: with no connection to the proxy yet, the ping opens one.
+static void ping_sent_when_not_registered(void) {
 	PingFixture fixture(false);
 
-	BC_ASSERT_EQUAL(linphone_account_send_ping(fixture.getAccount()), -1, int, "%d");
-	fixture.iterate(500);
-	BC_ASSERT_EQUAL(fixture.getResults().count, 0, int, "%d");
-	BC_ASSERT_EQUAL(fixture.getServer().getOptionsCount(), 0, int, "%d");
+	BC_ASSERT_EQUAL(linphone_account_send_ping(fixture.getAccount()), 0, int, "%d");
+	BC_ASSERT_TRUE(fixture.waitForResult(1));
+	BC_ASSERT_EQUAL(fixture.getResults().code, 200, int, "%d");
+	BC_ASSERT_EQUAL(fixture.getServer().getOptionsCount(), 1, int, "%d");
 }
 
 // Any response means the connection is up, so an error status is reported as is.
@@ -358,6 +359,18 @@ static void ping_in_flight_when_core_stops(void) {
 	BC_ASSERT_EQUAL(fixture.getResults().count, 0, int, "%d");
 }
 
+static void ping_not_sent_after_core_stops(void) {
+	PingFixture fixture;
+	if (!fixture.waitRegistered()) return;
+
+	LinphoneAccount *account = linphone_account_ref(fixture.getAccount());
+	linphone_core_stop(fixture.getCore());
+	BC_ASSERT_TRUE(
+	    wait_for_until(fixture.getCore(), NULL, &fixture.getManager()->stat.number_of_LinphoneGlobalOff, 1, 5000));
+	BC_ASSERT_EQUAL(linphone_account_send_ping(account), -1, int, "%d");
+	linphone_account_unref(account);
+}
+
 // The SIP proxy drops requests whose From isn't the account identity, so privacy must not anonymize the ping.
 static void ping_keeps_identity_with_privacy(void) {
 	PingFixture fixture(true, LinphonePrivacyUser | LinphonePrivacyId);
@@ -383,13 +396,14 @@ static void ping_reports_io_error_when_connection_closes(void) {
 
 static test_t account_ping_tests[] = {
     TEST_NO_TAG("Ping answered with 200", ping_answered_with_200),
-    TEST_NO_TAG("Ping not sent when not registered", ping_not_sent_when_not_registered),
+    TEST_NO_TAG("Ping sent when not registered", ping_sent_when_not_registered),
     TEST_NO_TAG("Ping reports an error response", ping_reports_error_response),
     TEST_NO_TAG("Ping times out when unanswered", ping_times_out_when_unanswered),
     TEST_NO_TAG("Second ping replaces the first", second_ping_replaces_first),
     TEST_NO_TAG("Ping in flight when the account is removed", ping_in_flight_when_account_removed),
     TEST_NO_TAG("Ping in flight when the account is destroyed", ping_in_flight_when_account_destroyed),
     TEST_NO_TAG("Ping in flight when the core stops", ping_in_flight_when_core_stops),
+    TEST_NO_TAG("Ping not sent after the core stops", ping_not_sent_after_core_stops),
     TEST_NO_TAG("Ping keeps the identity with privacy on", ping_keeps_identity_with_privacy),
     TEST_NO_TAG("Ping reports an IO error when the connection closes", ping_reports_io_error_when_connection_closes),
 };

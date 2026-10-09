@@ -853,9 +853,8 @@ LinphoneStatus Account::sendPing() {
 		lError() << *this << " can't send a ping without a proxy and an identity address";
 		return -1;
 	}
-	// Only probe the registration's connection: in any other state it's gone or being replaced.
-	if (mState != LinphoneRegistrationOk && mState != LinphoneRegistrationRefreshing) {
-		lInfo() << *this << " isn't registered, not sending a ping";
+	if (!getCCore()->sal) {
+		lError() << *this << " can't send a ping while the core is stopped";
 		return -1;
 	}
 	if (mPingOp) {
