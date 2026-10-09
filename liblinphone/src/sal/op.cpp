@@ -908,6 +908,8 @@ string SalOp::toString(const Type type) {
 			return "Subscribe";
 		case Type::Refer:
 			return "Refer";
+		case Type::Ping:
+			return "Ping";
 		case Type::Unknown:
 			return "Unknown";
 	}

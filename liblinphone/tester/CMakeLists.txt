@@ -321,6 +321,7 @@ endif()
 
 set(SOURCE_FILES_CXX
 	tester.cpp
+	account-ping-tester.cpp
 	alerts_tester.cpp
 	audio-quality-tester.cpp
 	bearer-auth.cpp

@@ -178,6 +178,11 @@ void linphone_account_pause_register(LinphoneAccount *account) {
 	Account::toCpp(account)->pauseRegister();
 }
 
+LinphoneStatus linphone_account_send_ping(LinphoneAccount *account) {
+	AccountLogContextualizer logContextualizer(account);
+	return Account::toCpp(account)->sendPing();
+}
+
 LinphoneReason linphone_account_get_error(LinphoneAccount *account) {
 	return Account::toCpp(account)->getError();
 }
@@ -356,6 +361,11 @@ void _linphone_account_notify_registration_state_changed(LinphoneAccount *accoun
 void _linphone_account_notify_conference_information_updated(LinphoneAccount *account, const bctbx_list_t *infos) {
 	LINPHONE_HYBRID_OBJECT_INVOKE_CBS(Account, Account::toCpp(account),
 	                                  linphone_account_cbs_get_conference_information_updated, infos);
+}
+
+void _linphone_account_notify_ping_result(LinphoneAccount *account, const LinphoneErrorInfo *error_info) {
+	LINPHONE_HYBRID_OBJECT_INVOKE_CBS(Account, Account::toCpp(account), linphone_account_cbs_get_ping_result,
+	                                  error_info);
 }
 
 bool_t linphone_account_is_phone_number(const LinphoneAccount *account, const char *username) {

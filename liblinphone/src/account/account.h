@@ -32,6 +32,7 @@
 #include "http/http-client.h"
 #include "linphone/api/c-callbacks.h"
 #include "linphone/api/c-types.h"
+#include "sal/ping-op.h"
 #include "sal/register-op.h"
 
 // =============================================================================
@@ -151,6 +152,7 @@ public:
 	void pauseRegister();
 	void refreshRegister();
 	void registerAccount();
+	LinphoneStatus sendPing();
 	void release();
 	void stopRefreshing();
 	void unpublish();
@@ -198,6 +200,7 @@ private:
 	bool canRegister();
 	bool computePublishParamsHash();
 	int done();
+	void onPingResult(SalPingOp *op);
 	void applyParamsChanges();
 	void resolveDependencies();
 	void updateDependentAccount(LinphoneRegistrationState state, const std::string &message);
@@ -248,6 +251,7 @@ private:
 	LinphoneRegistrationState mPreviousState = LinphoneRegistrationNone;
 
 	SalRegisterOp *mOp = nullptr;
+	SalPingOp *mPingOp = nullptr;
 	SalCustomHeader *mSentHeaders = nullptr;
 
 	std::shared_ptr<EventPublish> mPresencePublishEvent;
@@ -282,11 +286,14 @@ public:
 	void setMessageWaitingIndicationChanged(LinphoneAccountCbsMessageWaitingIndicationChangedCb cb);
 	LinphoneAccountCbsConferenceInformationUpdatedCb getConferenceInformationUpdated() const;
 	void setConferenceInformationUpdated(LinphoneAccountCbsConferenceInformationUpdatedCb cb);
+	LinphoneAccountCbsPingResultCb getPingResult() const;
+	void setPingResult(LinphoneAccountCbsPingResultCb cb);
 
 private:
 	LinphoneAccountCbsRegistrationStateChangedCb mRegistrationStateChangedCb = nullptr;
 	LinphoneAccountCbsMessageWaitingIndicationChangedCb mMessageWaitingIndicationChangedCb = nullptr;
 	LinphoneAccountCbsConferenceInformationUpdatedCb mConferenceInformationUpdatedCb = nullptr;
+	LinphoneAccountCbsPingResultCb mPingResultCb = nullptr;
 };
 
 class AccountLogContextualizer : public CoreLogContextualizer {

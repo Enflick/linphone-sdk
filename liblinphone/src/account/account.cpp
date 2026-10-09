@@ -848,6 +848,54 @@ void Account::pauseRegister() {
 	if (mOp) mOp->stopRefreshing();
 }
 
+LinphoneStatus Account::sendPing() {
+	if (!mParams || !mParams->mProxyAddress || !mParams->mIdentityAddress) {
+		lError() << *this << " can't send a ping without a proxy and an identity address";
+		return -1;
+	}
+	if (!getCCore()->sal) {
+		lError() << *this << " can't send a ping while the core is stopped";
+		return -1;
+	}
+	if (mPingOp) {
+		lInfo() << *this << " replacing the ping still in progress";
+		mPingOp->release();
+		mPingOp = nullptr;
+	}
+
+	mPingOp = new SalPingOp(getCCore()->sal.get());
+	linphone_configure_op_with_account(getCCore(), mPingOp, mParams->mIdentityAddress->toC(), nullptr, FALSE, toC());
+	// A server may drop an anonymous From, which would look like a dead connection.
+	mPingOp->setPrivacy(SalPrivacyNone);
+	weak_ptr<Account> weakZis = getSharedFromThis();
+	mPingOp->setResultCallback([weakZis](SalPingOp *op) {
+		if (auto zis = weakZis.lock()) zis->onPingResult(op);
+	});
+	if (mPingOp->sendPing(mParams->mProxyAddress->getImpl(), mParams->mIdentityAddress->getImpl()) != 0) {
+		lError() << *this << " failed to send a ping";
+		mPingOp->release();
+		mPingOp = nullptr;
+		return -1;
+	}
+	lInfo() << *this << " ping sent";
+	return 0;
+}
+
+void Account::onPingResult(SalPingOp *op) {
+	if (op != mPingOp) return;
+	// Cleared before notifying, so the app can send another ping from the callback.
+	mPingOp = nullptr;
+	LinphoneErrorInfo *ei = linphone_error_info_new();
+	// Not linphone_error_info_from_sal_op(): for a 2xx it reports the Reason header's info instead, so a 200 without
+	// one would come out as protocol code 0, which means no response.
+	linphone_error_info_from_sal(ei, op->getErrorInfo());
+	lInfo() << *this << " ping result: " << linphone_error_info_get_protocol_code(ei) << " ["
+	        << linphone_reason_to_string(linphone_error_info_get_reason(ei)) << "]";
+	_linphone_account_notify_ping_result(toC(), ei);
+	linphone_error_info_unref(ei);
+	op->release();
+}
+
 void Account::unregister() {
 	if (mOp) {
 		if (mState == LinphoneRegistrationOk || mState == LinphoneRegistrationFailed) {
@@ -1563,6 +1611,10 @@ void Account::release() {
 		mOp->release();
 		mOp = nullptr;
 	}
+	if (mPingOp) {
+		mPingOp->release();
+		mPingOp = nullptr;
+	}
 
 	if (mPresencePublishEvent) {
 		mPresencePublishEvent->terminate();
@@ -2272,6 +2324,14 @@ LinphoneAccountCbsConferenceInformationUpdatedCb AccountCbs::getConferenceInform
 
 void AccountCbs::setConferenceInformationUpdated(LinphoneAccountCbsConferenceInformationUpdatedCb cb) {
 	mConferenceInformationUpdatedCb = cb;
+}
+
+LinphoneAccountCbsPingResultCb AccountCbs::getPingResult() const {
+	return mPingResultCb;
+}
+
+void AccountCbs::setPingResult(LinphoneAccountCbsPingResultCb cb) {
+	mPingResultCb = cb;
 }
 
 #ifndef _MSC_VER

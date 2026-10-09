@@ -628,6 +628,7 @@ set(LINPHONE_CXX_OBJECTS_SOURCE_FILES
 	sal/event-op.cpp
 	sal/message-op.cpp
 	sal/op.cpp
+	sal/ping-op.cpp
 	sal/presence-op.cpp
 	sal/refer-op.cpp
 	sal/register-op.cpp

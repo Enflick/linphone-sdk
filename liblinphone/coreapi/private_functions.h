@@ -493,6 +493,7 @@ void _linphone_account_notify_registration_state_changed(LinphoneAccount *accoun
                                                          LinphoneRegistrationState state,
                                                          const char *message);
 void _linphone_account_notify_conference_information_updated(LinphoneAccount *account, const bctbx_list_t *infos);
+void _linphone_account_notify_ping_result(LinphoneAccount *account, const LinphoneErrorInfo *error_info);
 
 /*alerts*/
 void linphone_core_notify_alert(LinphoneCore *lc, LinphoneAlert *alert);
@@ -786,6 +787,7 @@ LinphonePlayerCbs *linphone_player_cbs_new(void);
 char *linphone_timestamp_to_rfc3339_string(time_t timestamp);
 
 void linphone_error_info_from_sal_op(LinphoneErrorInfo *ei, const LinphonePrivate::SalOp *op);
+void linphone_error_info_from_sal(LinphoneErrorInfo *ei, const SalErrorInfo *sei);
 
 void payload_type_set_enable(OrtpPayloadType *pt, bool_t value);
 bool_t payload_type_enabled(const OrtpPayloadType *pt);

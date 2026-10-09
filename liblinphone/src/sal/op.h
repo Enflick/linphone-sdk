@@ -281,7 +281,8 @@ protected:
 		Presence = 4,
 		Publish = 5,
 		Subscribe = 6,
-		Refer = 7 // For out of dialog refer only
+		Refer = 7, // For out of dialog refer only
+		Ping = 8   // Out of dialog OPTIONS
 	};
 
 	static std::string toString(const Type type);

@@ -76,3 +76,11 @@ void linphone_account_cbs_set_conference_information_updated(LinphoneAccountCbs 
                                                              LinphoneAccountCbsConferenceInformationUpdatedCb cb) {
 	AccountCbs::toCpp(cbs)->setConferenceInformationUpdated(cb);
 }
+
+LinphoneAccountCbsPingResultCb linphone_account_cbs_get_ping_result(const LinphoneAccountCbs *cbs) {
+	return AccountCbs::toCpp(cbs)->getPingResult();
+}
+
+void linphone_account_cbs_set_ping_result(LinphoneAccountCbs *cbs, LinphoneAccountCbsPingResultCb cb) {
+	AccountCbs::toCpp(cbs)->setPingResult(cb);
+}
