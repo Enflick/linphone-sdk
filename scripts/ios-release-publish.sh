@@ -12,12 +12,14 @@ CMAKE_PRESET="${CMAKE_PRESET:-ios-sdk}"
 CMAKE_CONFIG="${CMAKE_CONFIG:-RelWithDebInfo}"
 IOS_ARCHS="${IOS_ARCHS:-arm64,x86_64}"
 IOS_PLATFORM="${IOS_PLATFORM:-Both}"
-ENABLE_VIDEO="${ENABLE_VIDEO:-ON}"
+ENABLE_VIDEO="${ENABLE_VIDEO:-OFF}"
 NEXUS_BASE_URL="${NEXUS_BASE_URL:-https://nexus.tools.textnow.io}"
 NEXUS_REPOSITORY="${NEXUS_REPOSITORY:-ios-release}"
 NEXUS_USERNAME="${NEXUS_USERNAME:-${NEXUS_CAPI_USER:-}}"
 NEXUS_PASSWORD="${NEXUS_PASSWORD:-${NEXUS_CAPI_PASSWORD:-}}"
 OTOOL_BIN="${OTOOL_BIN:-otool}"
+DWARFDUMP_BIN="${DWARFDUMP_BIN:-dwarfdump}"
+NM_BIN="${NM_BIN:-nm}"
 
 DRY_RUN=false
 BUILD_ONLY=false
@@ -27,6 +29,14 @@ PUBLISH_STAGED=false
 SWIFT_PACKAGE_NAME="linphone-sdk-swift-ios"
 
 declare -a EXTRA_CMAKE_ARGS=()
+# The TextNow app is voice-only and uses no Linphone contacts, LDAP or IM
+# encryption, so drop those components from the shipped SDK. Advanced IM, Xerces
+# and DB storage stay on: local conferences (call merging) may depend on them.
+declare -a FEATURE_CMAKE_ARGS=(
+  "-DENABLE_LDAP=OFF"
+  "-DENABLE_VCARD=OFF"
+  "-DENABLE_LIME_X3DH=OFF"
+)
 declare -a UPLOAD_FILES=()
 declare -a TARGET_NAMES=()
 declare -a RUNTIME_DEPENDENCY_EDGES=()
@@ -56,7 +66,7 @@ Options:
   --cmake-config NAME         CMake configuration (default: RelWithDebInfo)
   --ios-archs LIST            Architectures (default: arm64,x86_64)
   --ios-platform NAME         Iphone, Simulator, or Both (default: Both)
-  --enable-video ON|OFF       Build video-enabled SDK (default: ON)
+  --enable-video ON|OFF       Build video-enabled SDK (default: OFF)
   --cmake-extra-arg ARG       Extra CMake configure arg (repeatable)
   --nexus-base-url URL        Nexus host base URL (default: https://nexus.tools.textnow.io)
   --nexus-repository NAME     Nexus raw repository (default: ios-release)
@@ -385,9 +395,14 @@ configure_build() {
     "-DLINPHONESDK_IOS_BASE_URL=https://invalid.example/LinphoneSDK"
   )
 
-  if [ "$ENABLE_VIDEO" = "OFF" ]; then
-    cmd+=("-DENABLE_VIDEO=OFF")
-  fi
+  case "$ENABLE_VIDEO" in
+    ON|OFF)
+      ;;
+    *)
+      die "--enable-video must be ON or OFF, got ${ENABLE_VIDEO}"
+      ;;
+  esac
+  cmd+=("-DENABLE_VIDEO=${ENABLE_VIDEO}" "${FEATURE_CMAKE_ARGS[@]}")
 
   if [ "${#EXTRA_CMAKE_ARGS[@]}" -gt 0 ]; then
     cmd+=("${EXTRA_CMAKE_ARGS[@]}")
@@ -460,6 +475,44 @@ PY
 )"
   [ "$debug_symbol_library_count" -eq 2 ] \
     || die "${zip_file} does not declare dSYMs for both XCFramework slices"
+
+  verify_stripped_slice "$zip_file" "$bundle_name" "$framework_name" ios-arm64
+  verify_stripped_slice "$zip_file" "$bundle_name" "$framework_name" ios-arm64_x86_64-simulator
+}
+
+macho_uuids() {
+  "${DWARFDUMP_BIN}" --uuid "$1" | awk '$1 == "UUID:" {print $2, $3}' | sort
+}
+
+# Shipped binaries must carry no debug info (it lives in the dSYM) and must keep
+# the dSYM's UUIDs, or Datadog can no longer symbolicate their crashes.
+verify_stripped_slice() {
+  local zip_file="$1"
+  local bundle_name="$2"
+  local framework_name="$3"
+  local slice="$4"
+  local extract_dir=""
+  local binary_entry="${bundle_name}/${slice}/${framework_name}.framework/${framework_name}"
+  local dsym_entry="${bundle_name}/${slice}/dSYMs/${framework_name}.framework.dSYM/Contents/Resources/DWARF/${framework_name}"
+  local binary_uuids=""
+  local dsym_uuids=""
+  local stab_count=""
+
+  extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/ios-release-verify.XXXXXX")"
+  unzip -qq "$zip_file" "$binary_entry" "$dsym_entry" -d "$extract_dir" \
+    || { rm -rf "$extract_dir"; die "${zip_file} is missing the ${slice} framework binary or dSYM"; }
+
+  binary_uuids="$(macho_uuids "${extract_dir}/${binary_entry}")"
+  dsym_uuids="$(macho_uuids "${extract_dir}/${dsym_entry}")"
+  # strip -x leaves only the linker's "OPT radr://5614542" marker stab behind.
+  stab_count="$("${NM_BIN}" -ap "${extract_dir}/${binary_entry}" | awk '$2 == "-" && $5 != "OPT"' | wc -l | tr -d ' ')"
+  rm -rf "$extract_dir"
+
+  [ -n "$binary_uuids" ] || die "${zip_file} ${slice} binary has no Mach-O UUID"
+  [ "$binary_uuids" = "$dsym_uuids" ] \
+    || die "${zip_file} ${slice} binary UUIDs [${binary_uuids//$'\n'/, }] do not match its dSYM [${dsym_uuids//$'\n'/, }]"
+  [ "$stab_count" -eq 0 ] \
+    || die "${zip_file} ${slice} binary still has ${stab_count} debug symbol entries; it was not stripped"
 }
 
 verify_generated_targets() {
@@ -881,6 +934,8 @@ main() {
   require_cmd python3
   require_cmd shasum
   require_cmd unzip
+  require_cmd "${DWARFDUMP_BIN}"
+  require_cmd "${NM_BIN}"
   if $PUBLISH_STAGED; then
     load_staged_context
   else

@@ -14,6 +14,8 @@ PORT_FILE="${TEST_ROOT}/server-port"
 SERVER_LOG="${TEST_ROOT}/server.log"
 REQUEST_LOG="${TEST_ROOT}/requests.log"
 OTOOL_STUB="${TEST_ROOT}/otool-stub.sh"
+DWARFDUMP_STUB="${TEST_ROOT}/dwarfdump-stub.sh"
+NM_STUB="${TEST_ROOT}/nm-stub.sh"
 
 EXPECTED_TARGETS=(
   bctoolbox
@@ -108,20 +110,61 @@ printf '\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current versi
 EOF
 chmod +x "${OTOOL_STUB}"
 
-for target in "${GENERATED_TARGETS[@]}"; do
-  fixture_dir="${TEST_ROOT}/${target}.xcframework"
-  raw_fixture_dir="${RAW_XCFRAMEWORK_DIR}/${target}.xcframework"
-  mkdir -p \
-    "${fixture_dir}/ios-arm64/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF" \
-    "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF" \
-    "${raw_fixture_dir}/ios-arm64/${target}.framework" \
-    "${raw_fixture_dir}/ios-arm64_x86_64-simulator/${target}.framework"
-  printf '%s\n' "${target}-device" > "${fixture_dir}/ios-arm64/${target}"
-  printf '%s\n' "${target}-sim" > "${fixture_dir}/ios-arm64_x86_64-simulator/${target}"
-  printf '%s\n' "${target}-device-symbols" > "${fixture_dir}/ios-arm64/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF/${target}"
-  printf '%s\n' "${target}-sim-symbols" > "${fixture_dir}/ios-arm64_x86_64-simulator/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF/${target}"
-  printf '%s\n' "${target}-device-binary" > "${raw_fixture_dir}/ios-arm64/${target}.framework/${target}"
-  printf '%s\n' "${target}-sim-binary" > "${raw_fixture_dir}/ios-arm64_x86_64-simulator/${target}.framework/${target}"
+# Fixture binaries are text files; a "uuid=" line stands in for the Mach-O UUID
+# and a "stabs" line marks a binary that still carries debug symbols.
+cat > "${DWARFDUMP_STUB}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = "--uuid" ] || exit 2
+sed -n 's/^uuid=//p' "$2" | while IFS= read -r uuid; do
+  printf 'UUID: %s (arm64) %s\n' "${uuid}" "$2"
+done
+EOF
+chmod +x "${DWARFDUMP_STUB}"
+
+cat > "${NM_STUB}" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = "-ap" ] || exit 2
+printf '0000000005614542 - 00 0000   OPT radr://5614542\n'
+if grep -q '^stabs$' "$2"; then
+  printf '0000000000001000 - 01 0000   FUN _linphone_core_new\n'
+fi
+EOF
+chmod +x "${NM_STUB}"
+export DWARFDUMP_BIN="${DWARFDUMP_STUB}"
+export NM_BIN="${NM_STUB}"
+
+# write_fixture_zip TARGET ZIP_PATH [stripped|unstripped|uuid-mismatch]
+write_fixture_zip() {
+  local target="$1"
+  local zip_path="$2"
+  local variant="${3:-stripped}"
+  local fixture_root=""
+  local fixture_dir=""
+  local slice=""
+  local dsym_uuid=""
+
+  fixture_root="$(mktemp -d "${TEST_ROOT}/fixture.XXXXXX")"
+  fixture_dir="${fixture_root}/${target}.xcframework"
+  for slice in ios-arm64 ios-arm64_x86_64-simulator; do
+    mkdir -p \
+      "${fixture_dir}/${slice}/${target}.framework" \
+      "${fixture_dir}/${slice}/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF"
+    printf 'uuid=%s-%s\n' "${target}" "${slice}" > "${fixture_dir}/${slice}/${target}.framework/${target}"
+    dsym_uuid="${target}-${slice}"
+    if [ "${slice}" = "ios-arm64" ]; then
+      case "${variant}" in
+        unstripped)
+          printf 'stabs\n' >> "${fixture_dir}/${slice}/${target}.framework/${target}"
+          ;;
+        uuid-mismatch)
+          dsym_uuid="${target}-rebuilt"
+          ;;
+      esac
+    fi
+    printf 'uuid=%s\nstabs\n' "${dsym_uuid}" > "${fixture_dir}/${slice}/dSYMs/${target}.framework.dSYM/Contents/Resources/DWARF/${target}"
+  done
   cat > "${fixture_dir}/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -130,11 +173,22 @@ for target in "${GENERATED_TARGETS[@]}"; do
 <dict><key>LibraryIdentifier</key><string>ios-arm64_x86_64-simulator</string><key>DebugSymbolsPath</key><string>dSYMs</string></dict>
 </array></dict></plist>
 EOF
+  rm -f "${zip_path}"
   (
-    cd "${TEST_ROOT}"
-    zip -rq "${PACKAGE_DIR}/XCFrameworks/${target}.xcframework.zip" "${target}.xcframework"
+    cd "${fixture_root}"
+    zip -rq "${zip_path}" "${target}.xcframework"
   )
-  rm -rf "${fixture_dir}"
+  rm -rf "${fixture_root}"
+}
+
+for target in "${GENERATED_TARGETS[@]}"; do
+  raw_fixture_dir="${RAW_XCFRAMEWORK_DIR}/${target}.xcframework"
+  mkdir -p \
+    "${raw_fixture_dir}/ios-arm64/${target}.framework" \
+    "${raw_fixture_dir}/ios-arm64_x86_64-simulator/${target}.framework"
+  printf '%s\n' "${target}-device-binary" > "${raw_fixture_dir}/ios-arm64/${target}.framework/${target}"
+  printf '%s\n' "${target}-sim-binary" > "${raw_fixture_dir}/ios-arm64_x86_64-simulator/${target}.framework/${target}"
+  write_fixture_zip "${target}" "${PACKAGE_DIR}/XCFrameworks/${target}.xcframework.zip"
 done
 
 cat > "${RAW_XCFRAMEWORK_DIR}/linphone.xcframework/ios-arm64/linphone.framework/linphone.deps" <<'EOF'
@@ -244,6 +298,24 @@ set -e
   echo "expected staging to reject an XCFramework without a device dSYM" >&2
   exit 1
 }
+
+for variant in unstripped uuid-mismatch; do
+  VARIANT_BUILD_DIR="${TEST_ROOT}/${variant}-build"
+  cp -R "${BUILD_DIR}" "${VARIANT_BUILD_DIR}"
+  write_fixture_zip linphone "${VARIANT_BUILD_DIR}/linphone-sdk-swift-ios/XCFrameworks/linphone.xcframework.zip" "${variant}"
+  set +e
+  OTOOL_BIN="${OTOOL_STUB}" bash "${REPO_ROOT}/scripts/ios-release-publish.sh" \
+    --skip-build \
+    --build-only \
+    --build-dir "${VARIANT_BUILD_DIR}" \
+    --staging-dir "${TEST_ROOT}/${variant}-staging"
+  VARIANT_STATUS=$?
+  set -e
+  [ "${VARIANT_STATUS}" -ne 0 ] || {
+    echo "expected staging to reject a ${variant} device binary" >&2
+    exit 1
+  }
+done
 
 MISSING_RUNTIME_BUILD_DIR="${TEST_ROOT}/missing-runtime-build"
 cp -R "${BUILD_DIR}" "${MISSING_RUNTIME_BUILD_DIR}"
