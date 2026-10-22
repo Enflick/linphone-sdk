@@ -1057,6 +1057,10 @@ public protocol AccountDelegate : AnyObject {
 	/// Gets the conference information updated callback.
 	/// - Returns: The current conference information updated callback.
 	func onConferenceInformationUpdated(account: Account, infos: [ConferenceInfo])
+
+	/// Gets the ping result callback.
+	/// - Returns: The current ping result callback.
+	func onPingResult(account: Account, errorInfo: ErrorInfo)
 }
 
 public extension AccountDelegate {
@@ -1066,6 +1070,8 @@ public extension AccountDelegate {
 	func onMessageWaitingIndicationChanged(account: Account, mwi: MessageWaitingIndication) {}
 
 	func onConferenceInformationUpdated(account: Account, infos: [ConferenceInfo]) {}
+
+	func onPingResult(account: Account, errorInfo: ErrorInfo) {}
 }
 
 public final class AccountDelegateStub : AccountDelegate
@@ -1073,6 +1079,7 @@ public final class AccountDelegateStub : AccountDelegate
 	var _onRegistrationStateChanged: ((Account, RegistrationState, String) -> Void)?
 	var _onMessageWaitingIndicationChanged: ((Account, MessageWaitingIndication) -> Void)?
 	var _onConferenceInformationUpdated: ((Account, [ConferenceInfo]) -> Void)?
+	var _onPingResult: ((Account, ErrorInfo) -> Void)?
 
 
 	public func onRegistrationStateChanged(account: Account, state: RegistrationState, message: String){_onRegistrationStateChanged.map{$0(account, state, message)}}
@@ -1081,14 +1088,18 @@ public final class AccountDelegateStub : AccountDelegate
 
 	public func onConferenceInformationUpdated(account: Account, infos: [ConferenceInfo]){_onConferenceInformationUpdated.map{$0(account, infos)}}
 
+	public func onPingResult(account: Account, errorInfo: ErrorInfo){_onPingResult.map{$0(account, errorInfo)}}
+
 	public init (
 		onRegistrationStateChanged: ((Account, RegistrationState, String) -> Void)? = nil,
 		onMessageWaitingIndicationChanged: ((Account, MessageWaitingIndication) -> Void)? = nil,
-		onConferenceInformationUpdated: ((Account, [ConferenceInfo]) -> Void)? = nil
+		onConferenceInformationUpdated: ((Account, [ConferenceInfo]) -> Void)? = nil,
+		onPingResult: ((Account, ErrorInfo) -> Void)? = nil
 	) {
 		self._onRegistrationStateChanged = onRegistrationStateChanged
 		self._onMessageWaitingIndicationChanged = onMessageWaitingIndicationChanged
 		self._onConferenceInformationUpdated = onConferenceInformationUpdated
+		self._onPingResult = onPingResult
 	}
 }
 
@@ -1135,6 +1146,14 @@ class AccountDelegateManager
 					listTemp = UnsafePointer<bctbx_list_t>(listTemp!.pointee.next)
 				}
 				delegate?.onConferenceInformationUpdated(account: sObject, infos: infossList)
+			}
+		})
+
+		linphone_account_cbs_set_ping_result(cPtr, { (account, errorInfo) -> Void in
+			if (account != nil) {
+				let sObject = Account.getSwiftObject(cObject: account!)
+				let delegate = sObject.currentDelegate
+				delegate?.onPingResult(account: sObject, errorInfo: ErrorInfo.getSwiftObject(cObject: errorInfo!))
 			}
 		})
 	}
@@ -6555,6 +6574,29 @@ public class Account : LinphoneObject
 	public func resetMissedCallsCount()
 	{
 		linphone_account_reset_missed_calls_count(cPtr)
+	}
+
+
+
+	/// Sends a SIP OPTIONS ping to the account's proxy, the same next hop as its
+	/// REGISTER, to check that the connection is still alive.
+	/// The result is reported once through the ping_result callback of
+	/// ``AccountDelegate``. The ping goes out on the existing connection to the proxy
+	/// while it's open; if there is none, for example because it was closed or marked
+	/// as failed, a new connection is opened for the ping. A new ping replaces one
+	/// still in progress, whose result is then not reported. A timeout is only
+	/// reported when the SIP transaction expires (32 s by default), so apply your own
+	/// deadline if you need a faster verdict. If the server challenges the ping for
+	/// credentials, it is authenticated like any other request, and no result is
+	/// reported while credentials are missing.
+	/// - Returns: 0 if the ping was sent, -1 otherwise, for example because the
+	/// account has no proxy.
+	public func sendPing() throws
+	{
+		let exception_result = linphone_account_send_ping(cPtr)
+		guard exception_result == 0 else {
+			throw LinphoneError.exception(result: "sendPing returned value \(exception_result)")
+		}
 	}
 
 

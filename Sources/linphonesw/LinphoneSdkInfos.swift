@@ -1,8 +1,8 @@
 import linphone
 
 public struct LinphoneSdkInfos {
-	public static let version = "5.5.13-pre.28+a69177bc6d"
-	public static let branch = "remotes/origin/main"
+	public static let version = "5.5.13-pre.33+25d076001f"
+	public static let branch = "main"
 }
 
 public extension Core {
