@@ -110,8 +110,6 @@ foreach(_FRAMEWORK IN LISTS _FRAMEWORKS)
 			list(APPEND _ALL_ARCH_FRAMEWORKS "${LINPHONESDK_NAME}/ios-${_ARCH}/Frameworks/${_FRAMEWORK_NAME}.framework/${_FRAMEWORK_NAME}")
 		else()
 			set(_FRAMEWORK_PATH "${LINPHONESDK_NAME}/ios-${_ARCH}/Frameworks/${_FRAMEWORK_NAME}.framework")
-			list(APPEND _ALL_ARCH_FRAMEWORKS "-framework")
-			list(APPEND _ALL_ARCH_FRAMEWORKS "${_FRAMEWORK_PATH}")
 
 			# Generate dSYM for this framework slice using dsymutil
 			set(_DSYM_PATH "${_FRAMEWORK_PATH}.dSYM")
@@ -123,12 +121,31 @@ foreach(_FRAMEWORK IN LISTS _FRAMEWORKS)
 			)
 			set(_DSYM_DWARF_FILE "${_DSYM_PATH}/Contents/Resources/DWARF/${_FRAMEWORK_NAME}")
 			if(_DSYMUTIL_RESULT EQUAL 0 AND EXISTS "${_DSYM_DWARF_FILE}")
-				list(APPEND _ALL_ARCH_FRAMEWORKS "-debug-symbols")
-				list(APPEND _ALL_ARCH_FRAMEWORKS "${_DSYM_ABSOLUTE_PATH}")
 				message(STATUS "Generated dSYM for ${_FRAMEWORK_NAME} (${_ARCH})")
 			else()
 				message(FATAL_ERROR "Failed to generate required dSYM for ${_FRAMEWORK_NAME} (${_ARCH}): ${_DSYMUTIL_ERROR}")
 			endif()
+
+			# Package a stripped copy of the slice. Its debug info now lives in the dSYM, and strip keeps
+			# the Mach-O UUID, so crash symbolication still matches. The original stays unstripped so a
+			# re-run of this script regenerates a complete dSYM instead of an empty one.
+			set(_STRIPPED_FRAMEWORKS_DIR "${LINPHONESDK_NAME}/ios-${_ARCH}/StrippedFrameworks")
+			set(_STRIPPED_FRAMEWORK_PATH "${_STRIPPED_FRAMEWORKS_DIR}/${_FRAMEWORK_NAME}.framework")
+			file(REMOVE_RECURSE "${_STRIPPED_FRAMEWORK_PATH}")
+			file(COPY "${_FRAMEWORK_PATH}" DESTINATION "${_STRIPPED_FRAMEWORKS_DIR}")
+			execute_process(
+				COMMAND "xcrun" "strip" "-x" "${_STRIPPED_FRAMEWORK_PATH}/${_FRAMEWORK_NAME}"
+				RESULT_VARIABLE _STRIP_RESULT
+				ERROR_VARIABLE _STRIP_ERROR
+			)
+			if(NOT _STRIP_RESULT EQUAL 0)
+				message(FATAL_ERROR "Failed to strip ${_FRAMEWORK_NAME} (${_ARCH}): ${_STRIP_ERROR}")
+			endif()
+
+			list(APPEND _ALL_ARCH_FRAMEWORKS "-framework")
+			list(APPEND _ALL_ARCH_FRAMEWORKS "${_STRIPPED_FRAMEWORK_PATH}")
+			list(APPEND _ALL_ARCH_FRAMEWORKS "-debug-symbols")
+			list(APPEND _ALL_ARCH_FRAMEWORKS "${_DSYM_ABSOLUTE_PATH}")
 		endif()
 	endforeach()
 	if(ENABLE_SWIFT_WRAPPER AND ENABLE_SWIFT_WRAPPER_COMPILATION)
