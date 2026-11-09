@@ -521,6 +521,7 @@ public class AndroidPlatformHelper {
 
         if (mNetworkSignalMonitor != null) {
             mNetworkSignalMonitor.destroy();
+            mNetworkSignalMonitor = null;
         }
 
         mNativePtr = 0;
@@ -1309,6 +1310,13 @@ public class AndroidPlatformHelper {
             Log.i("[Platform Helper] Unregistering doze receiver");
             mContext.unregisterReceiver(mDozeReceiver);
             mDozeReceiver = null;
+        }
+
+        // The signal monitor registers a telephony listener on each start. Unregister it here,
+        // or each core start leaks one and Android aborts the process at its per-process cap.
+        if (mNetworkSignalMonitor != null) {
+            mNetworkSignalMonitor.destroy();
+            mNetworkSignalMonitor = null;
         }
 
         mMonitoringEnabled = false;

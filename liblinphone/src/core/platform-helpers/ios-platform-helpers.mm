@@ -58,7 +58,14 @@ class IosPlatformHelpers : public MacPlatformHelpers, public CoreListener {
 public:
 	IosPlatformHelpers (std::shared_ptr<LinphonePrivate::Core> core, void *systemContext);
 	~IosPlatformHelpers () {
-		[mAppDelegate dealloc];
+		if (mAppDelegate) {
+			// Stop observing app-state notifications first, so nothing new gets queued for this core.
+			[NSNotificationCenter.defaultCenter removeObserver:mAppDelegate];
+			// Release, never dealloc: blocks that the delegate already queued on the core's queue retain it,
+			// so it must live until the last of them has run. Those blocks find no core and do nothing.
+			[mAppDelegate release];
+			mAppDelegate = nil;
+		}
 	}
 
 	void acquireCpuLock () override;
